@@ -5,7 +5,7 @@ import warnings
 
 from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
 from .utils import concatenate_paths, list_objects_matching_pattern, get_object_name, set_object_name
-from .utils import np_array_to_smallest_int_type, _guess_chunks
+from .utils import np_array_to_smallest_int_type, _determine_chunk_size
 
 from .metadata import Metadata
 
@@ -632,27 +632,12 @@ class Data:
         # TODO: add and validate additional datasets (i.e. 'Parameters', 'Calibration_index', etc.)
 
         # Add datasets to the group
-        def determine_chunk_size(arr: np.array) -> tuple:
-            """"
-            Use the same heuristic as the zarr library to determine the chunk size, but without splitting the last dimension
-            """
-            shape = arr.shape
-            typesize = arr.itemsize
-            #if the array is 1D, do not chunk it
-            if len(shape) <= 1:
-                return (shape[0],)
-            target_sizes = _guess_chunks.__kwdefaults__
-            # divide the target size by the last dimension size to get the chunk size for the other dimensions
-            target_sizes = {k: target_sizes[k] // shape[-1] 
-                            for k in target_sizes.keys()}
-            chunks = _guess_chunks(shape[0:-1], typesize, arr.nbytes, **target_sizes)
-            return chunks + (shape[-1],)  # keep the last dimension size unchanged
         sync(self._file.create_dataset(
             self._group, brim_obj_names.data.PSD, data=PSD,
-            chunk_size=determine_chunk_size(PSD), compression=compression))
+            chunk_size=_determine_chunk_size(PSD), compression=compression))
         freq_ds = sync(self._file.create_dataset(
             self._group,  brim_obj_names.data.frequency, data=frequency,
-            chunk_size=determine_chunk_size(frequency), compression=compression))
+            chunk_size=_determine_chunk_size(frequency), compression=compression))
         units.add_to_object(self._file, freq_ds, freq_units)
 
         if scanning is not None:

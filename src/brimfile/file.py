@@ -93,7 +93,8 @@ class File:
         return True
 
     @classmethod
-    def create(cls, filename: str, store_type: StoreType = StoreType.AUTO, brim_version: str = '0.1') -> 'File':
+    def create(cls, filename: str, store_type: StoreType = StoreType.AUTO, *, 
+               brim_version: str = '0.1') -> 'File':
         """
         Create a new brim file with the specified filename. If the file exists already it will generate an error.
 
