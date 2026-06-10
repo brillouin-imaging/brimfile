@@ -21,3 +21,4 @@ class brim_obj_names:
         spatial_map = 'Scanning/Spatial_map'
         cartesian_visualisation = 'Scanning/Cartesian_visualisation'
         raw_data = 'Raw_data'
+        calibration = 'Calibration'

@@ -360,5 +360,6 @@ if not _IMPORT_VALIDATION_ONLY:
     from .file import File
     from .data import Data
     from .analysis_results import AnalysisResults
+    from .calibration import Calibration
     from .metadata import Metadata
     from .file_abstraction import StoreType

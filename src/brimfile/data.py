@@ -2,17 +2,21 @@ import numpy as np
 import asyncio
 
 import warnings
+from typing import Any
+from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
 from .utils import concatenate_paths, list_objects_matching_pattern, get_object_name, set_object_name
 from .utils import np_array_to_smallest_int_type, _determine_chunk_size
 
 from .metadata import Metadata
+from .metadata.types import MetadataItem
 
 from numbers import Number
 
 from . import units
 from .analysis_results import AnalysisResults
+from .calibration import Calibration
 from .constants import brim_obj_names
 
 __docformat__ = "google"
@@ -448,6 +452,110 @@ class Data:
             pars_names = sync(self._file.get_attr(pars, 'Name'))
             return (pars, pars_names)
         return (None, None)
+
+    def create_calibration_group(self, *, index: NDArray[np.integer] | None = None, calibration_data: list[dict[str, Any]] | None = None,
+                                 timestamp: list[np.array] | None = None, same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
+                                 compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Calibration:
+        """
+        Create a new calibration group in the current data group.
+        For more details on the expected format of the calibration data, see https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md.
+
+        Parameters:
+            index (np.array | None, optional): Index array for the calibration spectra. For sparse data,
+                this must be 1D; for non-sparse data, this must be 3D.  
+                It can be omitted if each element in `calibration_data` contains only one spectrum.
+            calibration_data (list[dict[str, Any]] | None, optional): Calibration entries to store.
+                Each dictionary must contain `spectra` and `shift` keys, and may provide `shift_units`.                
+            timestamp (list[np.array] | None, optional): Timestamp arrays corresponding to each calibration
+                entry. If provided, its length must match `calibration_data`. Defaults to None.
+            same_as (int | None, optional): If provided, links this calibration group to an existing
+                calibration via the `Same_as` attribute. When set, the other data arguments are ignored.
+                Defaults to None.
+            attributes (dict[str, MetadataItem], optional): Additional attributes to attach to the calibration group.
+                Can be one of ('Datetime', 'Description', 'Temperature', 'FSR') with the relative units (when relevant).
+            compression (FileAbstraction.Compression, optional): Compression settings used for created
+                datasets. Defaults to FileAbstraction.Compression().
+
+        Returns:
+            Calibration: The newly created calibration group.
+
+        Raises:
+            ValueError: If the provided calibration data, index, or timestamp is invalid or inconsistent.
+        """
+        calibration_path = concatenate_paths(self._path, brim_obj_names.data.calibration)
+        calibration_group = sync(self._file.create_group(calibration_path))
+
+        # if same_as is provided, create the 'Same_as' attribute to link the calibration group to an existing one
+        if same_as is not None:
+            sync(self._file.create_attr(calibration_group, 'Same_as', same_as))
+        else: # if same_as is provided, the other parameters are ignored
+            # check that calibration_data is provided and valid
+            if calibration_data is None:
+                raise ValueError("'calibration_data' is required when 'same_as' is not provided")
+            if not isinstance(calibration_data, (list, tuple)):
+                calibration_data = [calibration_data,]
+            # check that index is valid if provided
+            if index is not None:
+                # TODO: check of the shape of 'index' is compatible with PSD
+                if self._sparse and index.ndim != 1:
+                    raise ValueError("'index' must be a 1D array for sparse data")
+                if not self._sparse and index.ndim != 3:
+                    raise ValueError("'index' must be a 3D array for non-sparse data")
+            # check that timestamp is valid if provided
+            if timestamp is not None: 
+                if not isinstance(timestamp, (list, tuple)):
+                    timestamp = [timestamp,]
+                if len(timestamp) != len(calibration_data):
+                    raise ValueError("If 'timestamp' is provided, it must have the same length as 'calibration_data'")            
+
+            for m, calib in enumerate(calibration_data):
+                # check that each element in calibration_data is a dictionary containing 'spectra' and 'shift' keys
+                if not isinstance(calib, dict):
+                    raise ValueError("Each element in 'calibration_data' must be a dictionary")
+                if 'spectra' not in calib.keys() or 'shift' not in calib.keys():
+                    raise ValueError("Each calibration data dictionary must contain 'spectra' and 'shift' keys")
+                # retrieve the spectra, shift and shift_units from the calibration data and check that they are valid
+                cal_spectra = np.array(calib['spectra'])
+                if cal_spectra.ndim != 2:
+                    raise ValueError("'spectra' in calibration data must be a 2D array. If only one spectrum is provided, set the first dimension to 1.")
+                cal_shift = calib['shift']
+                cal_shift_units = calib.get('shift_units', None)
+                if cal_shift_units is None:
+                    cal_shift_units = 'GHz'
+                    warnings.warn("No units provided for 'shift' in calibration data, defaulting to GHz")
+                # check that index is compatible with the shape of the spectra
+                if index is None and cal_spectra.shape[0] != 1:
+                    raise ValueError("If 'index' is not provided, each element in 'calibration_data' must contain only one spectrum (i.e. have shape (1, n))")
+                if index is not None and np.max(index) >= cal_spectra.shape[0]:
+                    raise ValueError("If 'index' is provided, its maximum value must be less than the number of spectra in each calibration data element")
+                # add the m arrays together with their attributes to the file
+                spectra_dataset = sync(self._file.create_dataset(calibration_group, f'{m}', cal_spectra, chunk_size=_determine_chunk_size(cal_spectra), compression=compression))
+                sync(self._file.create_attr(spectra_dataset, 'Shift', cal_shift))
+                units.add_to_attribute(self._file, spectra_dataset, 'Shift', cal_shift_units)
+                if timestamp is not None:
+                    timestamp_array = np.array(timestamp[m])
+                    if timestamp_array.ndim != 1 or timestamp_array.shape[0] != cal_spectra.shape[0]:
+                        raise ValueError("Each element in 'timestamp' must be a 1D array with the same length as the number of spectra in each calibration data element")
+                    sync(self._file.create_dataset(calibration_group, f'Timestamp_{m}', timestamp_array, compression=compression))
+            # add the index array to the file
+            if index is not None:
+                sync(self._file.create_dataset(calibration_group, 'Index', index, compression=compression))
+        
+        from .calibration import _STANDARD_ATTRIBUTES
+        # add any additional attributes to the calibration group, checking that they do not overwrite the standard
+        if attributes is not None:
+            for key, value in attributes.items():
+                if key not in _STANDARD_ATTRIBUTES:
+                    warnings.warn(f"Attribute '{key}' is not a standard attribute for calibration groups.\
+                                   Standard attributes are: {', '.join(_STANDARD_ATTRIBUTES)}. \
+                                   Make sure this is intentional!")
+                if not isinstance(value, MetadataItem):
+                    value = MetadataItem(value)
+                sync(self._file.create_attr(calibration_group, key, value.value))
+                if value.units is not None:
+                    units.add_to_attribute(self._file, calibration_group, key, value.units)
+
+        return Calibration(self._file, calibration_path, data_group_path=self._path)
 
     def create_analysis_results_group(self, data_AntiStokes, data_Stokes=None, *,
                                           index: int = None, name: str = None, fit_model: 'Data.AnalysisResults.FitModel' = None) -> AnalysisResults:
