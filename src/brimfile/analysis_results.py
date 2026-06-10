@@ -56,9 +56,16 @@ class AnalysisResults:
         Initialize the AnalysisResults object.
 
         Args:
-            file (File): The parent File object.
-            full_path (str): path of the group storing the analysis results
-            data_group_path (str): path of the data group associated with the analysis results
+            file (FileAbstraction): Parent file abstraction object.
+            full_path (str): Path of the group storing the analysis results.
+            data_group_path (str): Path of the data group associated with the analysis results.
+            spatial_map (optional): Spatial map used for sparse analysis results.
+            spatial_map_px_size (optional): Pixel size associated with ``spatial_map``.
+            sparse (bool): Whether the analysis results are stored in sparse format.
+
+        Raises:
+            ValueError: If ``sparse`` is ``True`` and either ``spatial_map`` or
+                ``spatial_map_px_size`` is not provided.
         """
         self._file = file
         self._path = full_path
