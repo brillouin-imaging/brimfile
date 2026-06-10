@@ -235,13 +235,10 @@ class File:
 
         Returns:
             Data: The Data object corresponding to the specified index.
-        """
-        group_name: str = Data._get_existing_group_name(self._file, index)
-        if group_name is None:
-            raise IndexError(f"Data {index} not found")
-        data = Data(self._file, concatenate_paths(
-            brim_obj_names.Brillouin_base_path, group_name))
-        return data
+        Raises:
+            IndexError: If the specified index does not exist in the dataset.
+        """        
+        return Data.from_existing(self._file, index)
 
     @property
     def filename(self) -> str:

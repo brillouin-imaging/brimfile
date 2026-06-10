@@ -6,7 +6,7 @@ from typing import Any
 from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
-from .utils import concatenate_paths, list_objects_matching_pattern, get_object_name, set_object_name
+from .utils import concatenate_paths, list_objects_matching_pattern_async, get_object_name, set_object_name
 from .utils import np_array_to_smallest_int_type, _determine_chunk_size
 
 from .metadata import Metadata
@@ -555,7 +555,33 @@ class Data:
                 if value.units is not None:
                     units.add_to_attribute(self._file, calibration_group, key, value.units)
 
-        return Calibration(self._file, calibration_path, data_group_path=self._path)
+        return Calibration(self._file, calibration_path, data_group=self)
+
+    def get_calibration(self) -> Calibration:
+        """
+        Retrieve the calibration group associated with the current data group.
+
+        Returns:
+            Calibration: The calibration group associated with the current data group.
+
+        Raises:
+            ValueError: If no calibration group is found in the current data group or the referenced calibration group does not exist.
+        """
+        calibration_path = concatenate_paths(self._path, brim_obj_names.data.calibration)
+        if not sync(self._file.object_exists(calibration_path)):
+            raise ValueError(f"No calibration group found in {self._path}")
+        same_as = None
+        try:
+            same_as = sync(self._file.get_attr(calibration_path, 'Same_as'))
+        except Exception:
+            pass #  same_as attribute is optional, if it does not exist we just ignore it
+        # if the 'Same_as' attribute exists, find the calibration group with the corresponding index
+        if same_as is not None:
+            try:
+                return Data.from_existing(self._file, same_as).get_calibration()
+            except IndexError:
+                raise ValueError(f"Calibration group in {self._path} references non-existing calibration index {same_as} in the file")
+        return Calibration(self._file, calibration_path, data_group=self)    
 
     def create_analysis_results_group(self, data_AntiStokes, data_Stokes=None, *,
                                           index: int = None, name: str = None, fit_model: 'Data.AnalysisResults.FitModel' = None) -> AnalysisResults:
@@ -608,8 +634,8 @@ class Data:
 
         analysis_results_groups = []
 
-        matched_objs = list_objects_matching_pattern(
-            self._file, self._group, brim_obj_names.data.analysis_results + r"_(\d+)$")
+        matched_objs = sync(list_objects_matching_pattern_async(
+            self._file, self._group, brim_obj_names.data.analysis_results + r"_(\d+)$"))
         async def _make_dict_item(matched_obj, retrieve_custom_name):
             name = matched_obj[0]
             index = int(matched_obj[1])
@@ -800,8 +826,8 @@ class Data:
 
         data_groups = []
 
-        matched_objs = list_objects_matching_pattern(
-            file, brim_obj_names.Brillouin_base_path, brim_obj_names.data.base_group + r"_(\d+)$")
+        matched_objs = sync(list_objects_matching_pattern_async(
+            file, brim_obj_names.Brillouin_base_path, brim_obj_names.data.base_group + r"_(\d+)$"))
         
         async def _make_dict_item(matched_obj, retrieve_custom_name):
             name = matched_obj[0]
@@ -842,7 +868,24 @@ class Data:
                 group_name = dg['name']
                 break
         return group_name
-
+    
+    @classmethod
+    def from_existing(cls, file: FileAbstraction, index: int) -> 'Data':
+        """ 
+        Create a Data object from an existing data group in the file.
+        Args:
+            file (File): The parent File object.
+            index (int): The index of the existing data group.      
+        Returns:
+            Data: A Data object corresponding to the existing data group.   
+        Raises:
+            IndexError: If no data group with the specified index is found in the file.
+        """
+        group_name: str = cls._get_existing_group_name(file, index)
+        if group_name is None:
+            raise IndexError(f"No data group with index {index} found in the file")
+        return cls(file, concatenate_paths(brim_obj_names.Brillouin_base_path, group_name))
+    
     @classmethod
     def _create_new(cls, file: FileAbstraction, index: int, sparse: bool = False, name: str = None) -> 'Data':
         """

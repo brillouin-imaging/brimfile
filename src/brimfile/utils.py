@@ -26,7 +26,7 @@ def concatenate_paths(*paths):
     return con_path
 
 
-def list_objects_matching_pattern(file: FileAbstraction, parent_obj, regexp: str) -> list:
+async def list_objects_matching_pattern_async(file: FileAbstraction, parent_obj, regexp: str) -> list:
     """
     Lists objects within a parent object that match a given regular expression pattern.
     Args:
@@ -42,7 +42,7 @@ def list_objects_matching_pattern(file: FileAbstraction, parent_obj, regexp: str
     # n_par = pattern.groups
 
     matched_objects = []
-    for obj_name in sync(file.list_objects(parent_obj)):
+    for obj_name in await file.list_objects(parent_obj):
         match = pattern.match(obj_name)
         if match:
             matched_objects.append((obj_name,) + match.groups())
