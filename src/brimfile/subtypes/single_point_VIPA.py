@@ -1,9 +1,12 @@
 import numpy as np
 import warnings
 
+from typing import Any
+from numpy.typing import NDArray
+
 from .constants import SubType, FEATURES
 
-from .. import Data
+from .. import Data, Calibration
 from ..constants import brim_obj_names
 from ..utils import concatenate_paths, _determine_chunk_size
 from ..file_abstraction import sync, FileAbstraction
@@ -37,7 +40,7 @@ def _check_or_create_subtype_feature(f: FileAbstraction, feature: str):
         # If the Subtype_features attribute does not exist, create it with the given feature
         sync(f.create_attr('/', 'Subtype_features', [feature]))
 
-def get_PSD_nonspectral_shape(data_group: Data) -> tuple[int, ...] | None:
+def _get_PSD_nonspectral_shape(data_group: Data) -> tuple[int, ...] | None:
     try:
         PSD = sync(data_group._file.open_dataset(concatenate_paths(
             data_group._path, brim_obj_names.data.PSD)))
@@ -79,7 +82,7 @@ def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
     _check_or_create_subtype_feature(data_group._file, '2DArray_per_spectrum')
 
     # check that the rawdata shape is compatible with the PSD shape if the latter is already present
-    PSD_nonspectral_shape = get_PSD_nonspectral_shape(data_group)
+    PSD_nonspectral_shape = _get_PSD_nonspectral_shape(data_group)
     if PSD_nonspectral_shape is not None:
         if (data_group._sparse and len(PSD_nonspectral_shape) != 1) or \
             (not data_group._sparse and len(PSD_nonspectral_shape) != 3):
@@ -103,3 +106,60 @@ def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
         '2DArray_per_spectrum', data=rawdata,
         chunk_size=_determine_chunk_size(rawdata, 2),
         compression=compression))
+
+def add_rawdata_calibration(calibration_group: Calibration, rawdata: NDArray | dict[int, Any], *,
+                compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+    """Add raw SinglePoint_VIPA calibration data for each calibration material.
+
+    This function requires that calibration spectra are already stored in the
+    calibration group before raw data is added. It validates the provided raw
+    data against the declared calibration materials and their array shapes.
+
+    Parameters
+    ----------
+    calibration_group : Calibration
+        Target calibration group where raw data will be stored.
+    rawdata : numpy.ndarray or dict[int, Any]
+        Raw calibration data. If a single calibration material is present, a
+        plain array is accepted and will be mapped automatically. If multiple
+        calibration materials are present, a dictionary mapping material indices
+        to arrays must be provided.
+    compression : FileAbstraction.Compression, optional
+        Compression settings used when creating the dataset.
+
+    Raises
+    ------
+    ValueError
+        If no calibration materials are found in the calibration group, if
+        multiple materials are present but ``rawdata`` is not a dictionary, if
+        a provided material index is not found in the calibration group, or if
+        the shape of a raw data array is incompatible with the corresponding
+        calibration array.
+    """
+    # validate the rawdata input based on the calibration materials declared in the calibration group
+    cal_mats = calibration_group.list_calibration_materials() 
+    if len(cal_mats) == 0:
+        raise ValueError("No calibration materials found in the calibration group. Please add at least one calibration material before adding raw data with calibration.")
+    if len(cal_mats) > 1 and not isinstance(rawdata, dict):
+        raise ValueError(f"Multiple calibration materials found in the calibration group, but rawdata is not provided as a dictionary with material indices as keys. \
+                         Please provide rawdata as a dict[int, Any] where the keys are the calibration material indices corresponding to the spectra in the calibration group.")
+    if len(cal_mats) == 1 and not isinstance(rawdata, dict):
+        rawdata = {cal_mats[0]: rawdata}
+    if len(cal_mats) != len(rawdata):
+        warnings.warn(f"The number of calibration materials in the calibration group ({len(cal_mats)}) does not match the number of rawdata entries provided ({len(rawdata)}).")
+    
+    # add the raw data for each calibration material
+    for m, data in rawdata.items():
+        if m not in cal_mats:
+            raise ValueError(f"Calibration material {m} not found in the calibration group. Available calibration materials: {cal_mats}")
+        
+        cal_arrs_shape = calibration_group._calibration_arrays[m].shape 
+        if data.ndim != len(cal_arrs_shape) + 1:
+            raise ValueError(f"Invalid rawdata shape for calibration material {m}: expected {len(cal_arrs_shape) + 1} dimensions, found {data.ndim}")
+        if data.shape[0] != cal_arrs_shape[0]:
+            raise ValueError(f"Invalid rawdata shape for calibration material {m}: the first dimension size {data.shape[0]} does not match the number of spectra in the calibration array {cal_arrs_shape[0]}")
+
+        gr_m = sync(calibration_group._file.create_group(concatenate_paths(calibration_group._path, "Raw_data", str(m))))
+        sync(calibration_group._file.create_dataset(gr_m, '2DArray_per_spectrum', data=data,
+            chunk_size=_determine_chunk_size(data, 2),
+            compression=compression))

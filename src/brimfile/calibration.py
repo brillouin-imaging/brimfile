@@ -109,3 +109,12 @@ class Calibration:
             
         return spectrum, MetadataItem(shift, shift_units)
     
+    def list_calibration_materials(self) -> list[int]:
+        """
+        List the available calibration materials in this calibration group.
+
+        Returns:
+            list[int]: A list of calibration material indices.
+        """
+        return list(self._calibration_arrays.keys())
+    
