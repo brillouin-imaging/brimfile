@@ -35,7 +35,7 @@ def _check_or_create_subtype_feature(f: FileAbstraction, feature: str):
         if feature not in subtype_features:
             subtype_features = list(subtype_features)
             subtype_features.append(feature)
-            sync(f.set_attr('/', 'Subtype_features', subtype_features))
+            sync(f.create_attr('/', 'Subtype_features', subtype_features))
     except KeyError:
         # If the Subtype_features attribute does not exist, create it with the given feature
         sync(f.create_attr('/', 'Subtype_features', [feature]))
@@ -163,3 +163,75 @@ def add_rawdata_calibration(calibration_group: Calibration, rawdata: NDArray | d
         sync(calibration_group._file.create_dataset(gr_m, '2DArray_per_spectrum', data=data,
             chunk_size=_determine_chunk_size(data, 2),
             compression=compression))
+
+def add_calibration_spectral_line(calibration_group: Calibration, spectral_line: NDArray | dict[int, Any], *,
+                                  linewidth: float | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+    """Add spectral line information for the calibration spectra.
+
+    This function requires that raw calibration data is already stored in the
+    calibration group before spectral line data is added. It validates the
+    provided spectral line data against the declared calibration materials and
+    their array shapes.
+
+    Parameters
+    ----------
+    calibration_group : Calibration
+        Target calibration group where spectral line data will be stored.
+    spectral_line : numpy.ndarray or dict[int, Any]
+        Spectral line data. Each entry must have its last dimension equal to 4,
+        corresponding to ``(y_start, x_start, y_end, x_end)``. If a single
+        calibration material is present, a plain array is accepted and will be
+        mapped automatically. If multiple calibration materials are present, a
+        dictionary mapping material indices to arrays must be provided. Arrays
+        can be 1-D (single line shared across spectra) or 2-D (one line per
+        spectrum).
+    linewidth : float, optional
+        Linewidth value to attach as an attribute to each spectral line dataset.
+    compression : FileAbstraction.Compression, optional
+        Compression settings used when creating the dataset.
+
+    Raises
+    ------
+    ValueError
+        If raw data has not been added to the calibration group yet, if no
+        calibration materials are found, if multiple materials are present but
+        ``spectral_line`` is not a dictionary, if a provided material index is
+        not found in the calibration group, if the last dimension of a spectral
+        line array is not 4, if the array has more than 2 dimensions, or if
+        the first dimension size does not match the number of spectra in the
+        corresponding calibration array.
+    """
+
+    _check_or_create_subtype_feature(calibration_group._file, 'Spectral_line')
+
+    # validate the spectral_line input based on the calibration materials declared in the calibration group
+    cal_mats = calibration_group.list_calibration_materials() 
+    if len(cal_mats) == 0:
+        raise ValueError("No calibration materials found in the calibration group. Please add at least one calibration material before adding raw data with calibration.")
+    if len(cal_mats) > 1 and not isinstance(spectral_line, dict):
+        raise ValueError(f"Multiple calibration materials found in the calibration group, but spectral_line is not provided as a dictionary with material indices as keys. \
+                         Please provide spectral_line as a dict[int, Any] where the keys are the calibration material indices corresponding to the spectra in the calibration group.")
+    if len(cal_mats) == 1 and not isinstance(spectral_line, dict):
+        spectral_line = {cal_mats[0]: spectral_line}
+    if len(cal_mats) != len(spectral_line):
+        warnings.warn(f"The number of calibration materials in the calibration group ({len(cal_mats)}) does not match the number of spectral_line entries provided ({len(spectral_line)}).")
+    
+    # add the spectra line for each calibration material
+    for m, sl in spectral_line.items():
+        if m not in cal_mats:
+            raise ValueError(f"Calibration material {m} not found in the calibration group. Available calibration materials: {cal_mats}")
+        if sl.shape[-1] != 4:
+            raise ValueError(f"The last dimension of the spectral_line array for calibration material {m} should have size 4, corresponding to (y_start, x_start, y_end, x_end). Found shape {sl.shape}")
+        if sl.ndim > 2:
+            raise ValueError(f"Invalid spectral_line shape for calibration material {m}: expected at most 2 dimensions, found {sl.ndim}")
+        if sl.ndim == 2 and sl.shape[0] != calibration_group._calibration_arrays[m].shape[0]:
+            raise ValueError(f"Invalid spectral_line shape for calibration material {m}: the first dimension size {sl.shape[0]} does not match the number of spectra in the calibration array {calibration_group._calibration_arrays[m].shape[0]}")
+        try: 
+            gr_m = sync(calibration_group._file.open_group(concatenate_paths(calibration_group._path, "Raw_data", str(m))))
+        except Exception as e:
+            raise ValueError(f"Raw data for calibration material {m} must be added before adding spectral line calibration data.") from e
+        sl_dt = sync(calibration_group._file.create_dataset(gr_m, 'Spectral_line', data=sl,
+            chunk_size=_determine_chunk_size(sl),
+            compression=compression))
+        if linewidth is not None:
+            sync(calibration_group._file.create_attr(sl_dt, 'Linewidth', linewidth))
