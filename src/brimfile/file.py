@@ -195,7 +195,7 @@ class File:
             ValueError: If any of the data provided is not valid or consistent
         """
         if index is not None:
-            if Data._get_existing_group_name(self._file, index) is not None:
+            if sync(Data._get_existing_group_name_async(self._file, index)) is not None:
                 raise IndexError(
                     f"Data {index} already exists in {self._file.filename}")
         else:
@@ -238,7 +238,7 @@ class File:
         Raises:
             IndexError: If the specified index does not exist in the dataset.
         """        
-        return Data.from_existing(self._file, index)
+        return sync(Data.from_existing_async(self._file, index))
 
     @property
     def filename(self) -> str:
