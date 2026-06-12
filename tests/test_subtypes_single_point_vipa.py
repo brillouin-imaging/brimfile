@@ -215,6 +215,74 @@ def test_get_raw_spectrum_in_image_with_analysis_results(request, file_fixture, 
     f.close()
 
 
+def test_get_raw_spectrum_in_image_without_spectral_line_source(empty_brim_file, sample_data):
+    """When no analysis results or calibration exist, spectral line data should be None."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data = f.create_data_group(
+        sample_data["PSD"],
+        sample_data["frequency"],
+        sample_data["pixel_size"],
+    )
+
+    rawdata = np.zeros((*sample_data["dimensions"], 2, 3), dtype=np.float32)
+    coor = (1, 2, 3)
+    rawdata[coor] = np.array([[30, 31, 32], [33, 34, 35]], dtype=np.float32)
+    spv.add_rawdata(data, rawdata)
+
+    raw_spectrum, line, linewidth = spv.get_raw_spectrum_in_image(data, coor)
+
+    np.testing.assert_array_equal(raw_spectrum, rawdata[coor])
+    assert line is None
+    assert linewidth is None
+
+    f.close()
+
+
+def test_get_raw_spectrum_in_image_supports_1d_analysis_results_line(empty_brim_file, sample_data):
+    """A 1-D Spectral_line dataset should be returned as a shared line for all spectra."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data = f.create_data_group(
+        sample_data["PSD"],
+        sample_data["frequency"],
+        sample_data["pixel_size"],
+    )
+
+    rawdata = np.zeros((*sample_data["dimensions"], 2, 3), dtype=np.float32)
+    coor = (1, 2, 3)
+    rawdata[coor] = np.array([[40, 41, 42], [43, 44, 45]], dtype=np.float32)
+    spv.add_rawdata(data, rawdata)
+
+    analysis_results = data.create_analysis_results_group(
+        {
+            "shift": sample_data["shift"],
+            "shift_units": "GHz",
+            "width": sample_data["width"],
+            "width_units": "GHz",
+        },
+        {
+            "shift": sample_data["shift"],
+            "shift_units": "GHz",
+            "width": sample_data["width"],
+            "width_units": "GHz",
+        },
+        fit_model=brim.Data.AnalysisResults.FitModel.Lorentzian,
+    )
+    spectral_line = np.array([1, 3, 5, 7], dtype=np.int32)
+    spv.add_analysis_results_spectral_line(analysis_results, spectral_line, linewidth=0.9)
+
+    raw_spectrum, line, linewidth = spv.get_raw_spectrum_in_image(
+        data,
+        coor,
+        analysis_results=analysis_results,
+    )
+
+    np.testing.assert_array_equal(raw_spectrum, rawdata[coor])
+    np.testing.assert_array_equal(line, spectral_line)
+    assert linewidth == 0.9
+
+    f.close()
+
+
 def test_get_raw_spectrum_in_image_with_calibration_fallback(empty_brim_file, sample_data):
     """Without analysis results, spectral line is resolved from calibration raw-data groups."""
     f = brim.File(empty_brim_file, mode="r+")

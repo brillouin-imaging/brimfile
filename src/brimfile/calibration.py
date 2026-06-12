@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import numpy as np 
+import numpy as np
 import asyncio
 import warnings
 
@@ -20,7 +20,7 @@ _STANDARD_ATTRIBUTES = ['Datetime', 'Description', 'Temperature', 'FSR']
 
 class Calibration:
     def __init__(self, file: FileAbstraction, full_path: str, *, 
-                 data_group: Data, _initialize = True):
+                 data_group: Data, _initialize: bool = True):
         """
         Initialize the Calibration object.
 

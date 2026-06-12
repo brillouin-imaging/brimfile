@@ -30,7 +30,7 @@ class Data:
     AnalysisResults = AnalysisResults
 
     def __init__(self, file: FileAbstraction, path: str, *, 
-                 newly_created = False, _initialize = True):
+                 newly_created: bool = False, _initialize: bool = True):
         """
         Initialize the Data object. This constructor should not be called directly.
 
@@ -39,7 +39,7 @@ class Data:
             path (str): The path to the data group within the file.
             newly_created (bool): Whether this data group is being created as new.
                             If True, the constructor will not attempt to load spatial mapping.
-            _initialize (bool): FOR INTERNAL USE ONLY. Whether to automatically initialize the calibration datasets. 
+            _initialize (bool): FOR INTERNAL USE ONLY. Whether to automatically initialize the current data group. 
                 Set to False if you want to initialize them manually later using the _init_async() method. Default is True.
         """
         self._file = file
@@ -49,7 +49,7 @@ class Data:
         if _initialize:
             sync(self._init_async(newly_created=newly_created))        
     
-    async def _init_async(self, newly_created = False) -> None:
+    async def _init_async(self, newly_created: bool = False) -> None:
         """
         See __init__() for the description of the arguments.
         """
@@ -141,7 +141,7 @@ class Data:
                 cv = np_array_to_smallest_int_type(cv)
 
         elif await self._file.object_exists(sm_path):
-            async def load_spatial_map_from_file(self):
+            async def load_spatial_map_from_file():
                 async def load_coordinate_from_sm(coord: str):
                     res = np.empty(0)  # empty array
                     try:
@@ -186,7 +186,7 @@ class Data:
                     d = (np.max(x)-np.min(x))/(n-1)
                 return n, d
 
-            x, y, z = await load_spatial_map_from_file(self)
+            x, y, z = await load_spatial_map_from_file()
 
             # TODO extend the reconstruction to non-cartesian cases
 

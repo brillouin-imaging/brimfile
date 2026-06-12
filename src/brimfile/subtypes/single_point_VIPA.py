@@ -90,7 +90,7 @@ def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
             (not data_group._sparse and len(PSD_nonspectral_shape) != 3):
             raise ValueError(f"Adding raw data is not supported when the PSD array has additional non-spectral dimensions (PSD non-spectral shape: {PSD_nonspectral_shape}, sparse: {data_group._sparse}).")
         if rawdata.ndim < len(PSD_nonspectral_shape) + 2 or rawdata.ndim > len(PSD_nonspectral_shape) + 3:
-            raise ValueError(f"Invalid rawdata shape: expected {len(PSD_nonspectral_shape) + 2}  or {len(PSD_nonspectral_shape) + 3} dimensions, found {rawdata.ndim}")
+            raise ValueError(f"Invalid rawdata shape: expected {len(PSD_nonspectral_shape) + 2} or {len(PSD_nonspectral_shape) + 3} dimensions, found {rawdata.ndim}")
         if rawdata.shape[:len(PSD_nonspectral_shape)] != PSD_nonspectral_shape:
             raise ValueError(f"Invalid rawdata shape: the non-spectral dimensions {rawdata.shape[:len(PSD_nonspectral_shape)]} are not compatible with the PSD non-spectral shape {PSD_nonspectral_shape}")
     
@@ -337,6 +337,8 @@ async def _get_spectral_line_in_image_from_analysis_results_async(analysis_resul
         raise ValueError(f"The last dimension of the Spectral_line dataset in the analysis results should have size 4, corresponding to (y_start, x_start, y_end, x_end). Found shape {sl_arr.shape}")
     if sl_arr.ndim > 1:
         spectral_line = await _async_getitem(sl_arr, index+(...,))
+    else:
+        spectral_line = await _async_getitem(sl_arr, ...)
     try:
         linewidth = await analysis_results._file.get_attr(sl_arr, 'Linewidth')
     except Exception as e:
@@ -373,9 +375,7 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
     
     rawdata_arr = await data_group._file.open_dataset(concatenate_paths(data_group._path, brim_obj_names.data.raw_data, '2DArray_per_spectrum'))
     raw_spectrum_coro = _async_getitem(rawdata_arr, index +(...,))
-    def none_coro():
-        return None
-    spectral_line_coro = none_coro()
+    spectral_line_coro = None
     if analysis_results is not None:
         spectral_line_coro = _get_spectral_line_in_image_from_analysis_results_async(analysis_results, index)
     else:
@@ -385,6 +385,10 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
             spectral_line_coro = _get_spectral_line_in_image_from_calibration_async(calibration_group, index)
         except Exception as e:
             pass
+    if spectral_line_coro is None:
+        async def none_coro():
+            return None, None
+        spectral_line_coro = none_coro()
     raw_spectrum, spectral_line = await asyncio.gather(raw_spectrum_coro, spectral_line_coro)     
     
     return (raw_spectrum, ) + spectral_line
