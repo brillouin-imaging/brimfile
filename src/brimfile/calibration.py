@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import numpy as np 
+import asyncio
 import warnings
 
-from .file_abstraction import FileAbstraction, _gather_sync, _async_getitem
+from .file_abstraction import FileAbstraction, _async_getitem, sync, _gather_sync
 from .utils import concatenate_paths, list_objects_matching_pattern_async
 from . import units
 from .metadata.types import MetadataItem
@@ -19,7 +20,7 @@ _STANDARD_ATTRIBUTES = ['Datetime', 'Description', 'Temperature', 'FSR']
 
 class Calibration:
     def __init__(self, file: FileAbstraction, full_path: str, *, 
-                 data_group: Data):
+                 data_group: Data, _initialize = True):
         """
         Initialize the Calibration object.
 
@@ -27,14 +28,25 @@ class Calibration:
             file (FileAbstraction): Parent file abstraction.
             full_path (str): Path to the group storing calibration datasets.
             data_group (Data): Data group associated with this calibration group.
+            _initialize (bool): FOR INTERNAL USE ONLY. Whether to automatically initialize the calibration datasets. 
+                Set to False if you want to initialize them manually later using the _init_async() method. Default is True.
         """
         self._file = file
         self._path = full_path
         self._data_group = data_group
 
+        if _initialize:
+            sync(self._init_async())        
+        
+    async def _init_async(self) -> None:
+        """
+        Asynchronous initialization method to open the calibration datasets.
+
+        This method is called internally by the constructor and should not be called directly.
+        """
         self._index = None # dataset containing the indices of the calibration data
         self._calibration_arrays: dict[int, Any] = {} # dictionary to store the calibration data arrays, with numeric keys corresponding to the index of the calibration material
-        index, spectra_arrs = _gather_sync(
+        index, spectra_arrs = await asyncio.gather(
             self._file.open_dataset(concatenate_paths(self._path, 'Index')),
             list_objects_matching_pattern_async(self._file, self._path, r"^(\d+)$"),
             return_exceptions=True
@@ -44,7 +56,7 @@ class Calibration:
             raise ValueError(f"No calibration data found in {self._path}: {spectra_arrs}")
         spectra_arrs = [name for name, _ in spectra_arrs]
         coros = [self._file.open_dataset(concatenate_paths(self._path, name)) for name in spectra_arrs]
-        cal_arrs = _gather_sync(*coros)
+        cal_arrs = await asyncio.gather(*coros)
         self._calibration_arrays = {int(name): arr for name, arr in zip(spectra_arrs, cal_arrs)}
         # sort the calibration arrays by their numeric keys
         self._calibration_arrays = {m: self._calibration_arrays[m] for m in sorted(self._calibration_arrays.keys())}
@@ -64,7 +76,7 @@ class Calibration:
                 raise ValueError(f"Calibration array {m} should be 2D, but has shape {arr.shape}")
             if arr.shape[0] > 1 and self._index is None:
                 raise ValueError(f"Calibration array {m} has more than one spectrum but no index dataset found")
-        
+
 
     def get_spectrum_at_coor(self, coor: tuple, m: int = 0) -> tuple:
         """

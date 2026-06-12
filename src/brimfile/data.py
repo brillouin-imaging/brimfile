@@ -556,8 +556,14 @@ class Data:
                     units.add_to_attribute(self._file, calibration_group, key, value.units)
 
         return Calibration(self._file, calibration_path, data_group=self)
-
+    
     def get_calibration(self) -> Calibration:
+        """
+        Synchronous wrapper for `get_calibration_async` (see doc for `brimfile.data.Data.get_calibration_async`)
+        """
+        return sync(self.get_calibration_async())
+
+    async def get_calibration_async(self) -> Calibration:
         """
         Retrieve the calibration group associated with the current data group.
 
@@ -568,20 +574,22 @@ class Data:
             ValueError: If no calibration group is found in the current data group or the referenced calibration group does not exist.
         """
         calibration_path = concatenate_paths(self._path, brim_obj_names.data.calibration)
-        if not sync(self._file.object_exists(calibration_path)):
+        if not await self._file.object_exists(calibration_path):
             raise ValueError(f"No calibration group found in {self._path}")
         same_as = None
         try:
-            same_as = sync(self._file.get_attr(calibration_path, 'Same_as'))
+            same_as = await self._file.get_attr(calibration_path, 'Same_as')
         except Exception:
             pass #  same_as attribute is optional, if it does not exist we just ignore it
         # if the 'Same_as' attribute exists, find the calibration group with the corresponding index
         if same_as is not None:
             try:
-                return Data.from_existing(self._file, same_as).get_calibration()
+                return await Data.from_existing(self._file, same_as).get_calibration_async()
             except IndexError:
                 raise ValueError(f"Calibration group in {self._path} references non-existing calibration index {same_as} in the file")
-        return Calibration(self._file, calibration_path, data_group=self)    
+        cal_group = Calibration(self._file, calibration_path, data_group=self, _initialize=False)
+        await cal_group._init_async()
+        return cal_group
 
     def create_analysis_results_group(self, data_AntiStokes, data_Stokes=None, *,
                                           index: int = None, name: str = None, fit_model: 'Data.AnalysisResults.FitModel' = None) -> AnalysisResults:
