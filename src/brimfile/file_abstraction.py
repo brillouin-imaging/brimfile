@@ -563,7 +563,7 @@ else:
 
         async def create_dataset(self, parent_group, name: str, data, chunk_size=None, compression: 'FileAbstraction.Compression' = FileAbstraction.Compression()):
             if isinstance(parent_group, str):
-                parent_group = await self.getitem(parent_group)
+                parent_group = await self.open_group(parent_group)
             compressor = None
             if chunk_size is None:
                 chunk_size = 'auto'
