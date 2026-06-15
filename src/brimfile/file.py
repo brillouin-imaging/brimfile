@@ -6,6 +6,7 @@ from .data import Data
 from .utils import concatenate_paths
 from .constants import brim_obj_names
 from . import units
+from . import subtypes
 
 from .file_abstraction import FileAbstraction, StoreType, sync
 from .validation import validate_json, ValidationError, ValidationLevel
@@ -249,3 +250,13 @@ class File:
             str: The filename of the brim file.
         """
         return self._file.filename
+    
+    @property
+    def subtype(self) -> subtypes.SubType:
+        """
+        Get the subtype of the brim file.
+
+        Returns:
+            subtypes.SubType: The subtype of the brim file.
+        """
+        return subtypes.get_subtype(self._file)

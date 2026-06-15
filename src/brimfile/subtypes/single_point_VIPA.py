@@ -7,40 +7,12 @@ from numbers import Number
 from numpy.typing import NDArray
 
 from .constants import SubType, FEATURES
+from .utils import _check_or_create_subtype, _check_or_create_subtype_feature
 
 from .. import Data, Calibration, AnalysisResults
 from ..constants import brim_obj_names
 from ..utils import concatenate_paths, _determine_chunk_size
 from ..file_abstraction import sync, FileAbstraction, _async_getitem
-
-def _check_or_create_subtype(f: FileAbstraction):
-    """
-    Check that the data group subtype is correct, creating it if missing.
-    """
-    try:
-        # Check if the subtype already stored in the file is correct
-        subtype = sync(f.get_attr('/', 'Subtype'))
-        if subtype != SubType.SinglePoint_VIPA_v0_1.value:
-            raise ValueError(f"Invalid subtype: {subtype}. Expected {SubType.SinglePoint_VIPA_v0_1.value}")
-    except KeyError:
-        # If the Subtype attribute does not exist, create it
-        sync(f.create_attr('/', 'Subtype', SubType.SinglePoint_VIPA_v0_1.value))
-
-def _check_or_create_subtype_feature(f: FileAbstraction, feature: str):
-    """
-    Check that the given feature is declared in the Subtype_features attribute, creating it if missing.
-    """
-    try:
-        subtype_features = sync(f.get_attr('/', 'Subtype_features'))
-        if not isinstance(subtype_features, (list, tuple)):
-            raise ValueError(f"Invalid Subtype_features attribute: expected a list or tuple, found {type(subtype_features).__name__}")
-        if feature not in subtype_features:
-            subtype_features = list(subtype_features)
-            subtype_features.append(feature)
-            sync(f.create_attr('/', 'Subtype_features', subtype_features))
-    except KeyError:
-        # If the Subtype_features attribute does not exist, create it with the given feature
-        sync(f.create_attr('/', 'Subtype_features', [feature]))
 
 def _get_PSD_nonspectral_shape(data_group: Data) -> tuple[int, ...] | None:
     try:
@@ -80,7 +52,7 @@ def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
         are not compatible with the existing PSD layout.
     """
     # make sure the attributes at the root level are correctly set for the SinglePoint_VIPA_v0.1 subtype
-    _check_or_create_subtype(data_group._file)
+    _check_or_create_subtype(data_group._file, SubType.SinglePoint_VIPA_v0_1)
     _check_or_create_subtype_feature(data_group._file, '2DArray_per_spectrum')
 
     # check that the rawdata shape is compatible with the PSD shape if the latter is already present

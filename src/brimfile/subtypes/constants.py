@@ -8,6 +8,7 @@ class SubType(Enum):
     Enumeration of supported Brimfile subtypes.
     See https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_subtypes.md for their definition.
     """
+    none = 'none'
     SinglePoint_VIPA_v0_1 = 'SinglePoint_VIPA_v0.1'
 
 @dataclass
