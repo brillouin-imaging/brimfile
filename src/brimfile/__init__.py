@@ -17,6 +17,7 @@ metadata and analysis results through their corresponding classes.
 - [Data](#data): represents a data group in the brim file, which contains the spectral data and metadata.
 - [Metadata](#metadata): represents the metadata associated to a data group (or to the whole file).
 - [AnalysisResults](#analysisresults): represents the results of the analysis of the spectral data.
+- [Calibration](#calibration): represents the calibration data associated to a data group, which contains the calibration spectra and relevant metadata.
 
 
 ## Install brimfile
@@ -191,6 +192,28 @@ ar_cls = AnalysisResults
 img, px_size = analysis_results.get_image(ar_cls.Quantity.Shift, ar_cls.PeakType.average)
 ```
 
+### Calibration
+
+Calibration data can be accessed through the `brimfile.calibration.Calibration` object, obtained by calling `brimfile.data.Data.get_calibration`.
+You can create a new calibration group with `brimfile.data.Data.create_calibration_group` by providing one or more calibration materials
+(each with `spectra`, `shift`, and optional `shift_units`) and, when needed, an `index` array mapping image coordinates to calibration spectra.
+If another data group should reuse an existing calibration, you can pass `same_as=<data_group_index>` when creating the calibration group.
+
+```Python
+# create calibration for data group d0
+N = np.prod(PSD.shape[:-1])
+index = np.arange(N).reshape(PSD.shape[:-1])
+cal_d = {'spectra': np.empty((N, 50)), 'shift': 7.0, 'shift_units': 'GHz'}
+d0.create_calibration_group(index=index, calibration_data=[cal_d])
+
+# retrieve calibration and get a spectrum at (z, y, x)
+cal = d0.get_calibration()
+spectrum, shift = cal.get_spectrum_at_coor((1, 2, 3))
+
+# optionally reuse calibration from data group 0 in another data group
+d1.create_calibration_group(same_as=0)
+```
+
 ## List the contents of a brim file
 
 The *brimfile* library provides methods to list the contents of a brim file.
@@ -202,6 +225,10 @@ Once you have a `Data` object, you can list the analysis results in it by callin
 Once you have an `AnalysisResults` object, you can determine:
 - if the Stokes and/or anti-Stokes peaks are present by calling the `brimfile.analysis_results.AnalysisResults.list_existing_peak_types` method;
 - the available quantities (e.g. shift, linewidth, etc...) in the analysis results by calling the `brimfile.analysis_results.AnalysisResults.list_existing_quantities` method.
+
+## Subtypes
+
+For subtype-specific data and utilities (for example SinglePoint_VIPA helpers), see ``brimfile.subtypes``.
 
 ## Example code
 
