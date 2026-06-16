@@ -9,6 +9,9 @@ from ..metadata.validation import validate_single_field
 from ..metadata.schema import Type as MetadataType
 from ..metadata.schema import METADATA_SCHEMA
 
+from ..subtypes.constants import SubType
+from ..subtypes.constants import FEATURES as SUBTYPE_FEATURES
+
 from ..constants import brim_obj_names
 from ..utils import concatenate_paths
 from .utils import get_node_type, get_attributes, get_array_shape_and_dtype, \
@@ -38,6 +41,332 @@ class ValidationError:
     type: ValidationType
     path: str = None # The full path of the object (group or array) where the error occurred. None if the error is not specific to a particular path.
     message: str = ""
+
+
+def _validate_singlepoint_vipa_data_group(
+    node: dict,
+    path: str,
+    *,
+    sparse: bool,
+    PSD_shape: tuple[int, ...] | None,
+) -> list[ValidationError]:
+    errs: list[ValidationError] = []
+    if PSD_shape is None:
+        return errs
+
+    expected_spatial_dims = 1 if sparse else 3
+    expected_psd_ndim = expected_spatial_dims + 1
+    if len(PSD_shape) != expected_psd_ndim:
+        errs.append(ValidationError(
+            level=ValidationLevel.ERROR,
+            type=ValidationType.INVALID_SHAPE,
+            path=concatenate_paths(path, 'PSD'),
+            message=(
+                f"For subtype '{SubType.SinglePoint_VIPA_v0_1.value}', the 'PSD' array must have {expected_psd_ndim} "
+                f"dimensions ({expected_spatial_dims} spatial + frequency), found shape {PSD_shape}."
+            )
+        ))
+    spatial_shape = PSD_shape[:-1]
+
+    def _validate_2d_raw_array(raw_array_node: dict, raw_array_path: str, *, expected_prefix: tuple[int, ...]) -> tuple[int | None, bool]:
+        """Validate a 2DArray_per_spectrum array shape and dtype.
+
+        The array must match the provided spectrum-prefix dimensions, followed by
+        either:
+        - one optional replicate axis and image axes (M, N), or
+        - only image axes (M, N).
+
+        Args:
+            raw_array_node: Candidate array node.
+            raw_array_path: Full path used for validation messages.
+            expected_prefix: Required leading dimensions derived from the
+                corresponding spectra array.
+
+        Returns:
+            A tuple ``(replicate_count, shape_is_valid)`` where
+            ``replicate_count`` is the replicate axis length when present,
+            otherwise ``None``.
+        """
+        raw_shape, raw_dtype = get_array_shape_and_dtype(raw_array_node)
+        if raw_shape is None or raw_dtype is None:
+            errs.append(ValidationError(
+                level=ValidationLevel.CRITICAL,
+                type=ValidationType.MISSING_ATTRIBUTE,
+                path=raw_array_path,
+                message=f"The '2DArray_per_spectrum' array at '{raw_array_path}' must define 'shape' and 'dtype'."
+            ))
+            return None, False
+        if not is_numeric_dtype(raw_dtype):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=raw_array_path,
+                message=f"The '2DArray_per_spectrum' array at '{raw_array_path}' must have a numeric dtype, found '{raw_dtype}'."
+            ))
+
+        with_replicates = len(raw_shape) == len(expected_prefix) + 3
+        without_replicates = len(raw_shape) == len(expected_prefix) + 2
+        if not (with_replicates or without_replicates):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_SHAPE,
+                path=raw_array_path,
+                message=(
+                    f"The '2DArray_per_spectrum' array at '{raw_array_path}' has invalid shape {raw_shape}. "
+                    f"Expected prefix {expected_prefix}, optionally one replicate axis, then image axes (M, N)."
+                )
+            ))
+            return None, False
+
+        if tuple(raw_shape[:len(expected_prefix)]) != expected_prefix:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_SHAPE,
+                path=raw_array_path,
+                message=(
+                    f"The '2DArray_per_spectrum' array at '{raw_array_path}' must match prefix {expected_prefix} "
+                    f"from the corresponding spectra data, found {raw_shape}."
+                )
+            ))
+
+        if len(raw_shape) >= 2 and (raw_shape[-2] < 1 or raw_shape[-1] < 1):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_SHAPE,
+                path=raw_array_path,
+                message=f"The image dimensions (M, N) in '{raw_array_path}' must be >= 1, found {raw_shape[-2:]}."
+            ))
+
+        replicate_count = raw_shape[len(expected_prefix)] if with_replicates else None
+        return replicate_count, True
+
+    def _validate_spectral_line_array(
+        sl_node: dict,
+        sl_path: str,
+        *,
+        base_count: int | None = None,
+        replicate_count: int | None = None,
+        spatial_prefix: tuple[int, ...] | None = None,
+    ) -> None:
+        """Validate Spectral_line shape and dtype for subtype-specific contexts.
+
+        The final axis must always contain 4 coordinates
+        (y_start, x_start, y_end, x_end). Prefix dimensions are validated
+        according to where the array is stored:
+        - analysis-level: either global ``(4,)`` or one value per spatial point
+          ``spatial_prefix + (4,)``;
+        - calibration raw-data level: optional global ``(4,)``, per-calibration
+          ``(base_count, 4)``, or per-calibration-and-replicate
+          ``(base_count, replicate_count, 4)``.
+
+        Args:
+            sl_node: Candidate Spectral_line array node.
+            sl_path: Full path used for validation messages.
+            base_count: Number of calibration spectra for the mirrored
+                calibration item.
+            replicate_count: Number of raw replicates per calibration spectrum,
+                when present.
+            spatial_prefix: Spatial dimensions of PSD for analysis-level
+                Spectral_line validation.
+        """
+        sl_shape, sl_dtype = get_array_shape_and_dtype(sl_node)
+        if sl_shape is None or sl_dtype is None:
+            errs.append(ValidationError(
+                level=ValidationLevel.CRITICAL,
+                type=ValidationType.MISSING_ATTRIBUTE,
+                path=sl_path,
+                message=f"The 'Spectral_line' array at '{sl_path}' must define 'shape' and 'dtype'."
+            ))
+            return
+        if not is_numeric_dtype(sl_dtype):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=sl_path,
+                message=f"The 'Spectral_line' array at '{sl_path}' must have a numeric dtype, found '{sl_dtype}'."
+            ))
+        if len(sl_shape) < 1 or sl_shape[-1] != 4:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_SHAPE,
+                path=sl_path,
+                message=f"The last dimension of 'Spectral_line' at '{sl_path}' must be 4 (y_start, x_start, y_end, x_end), found shape {sl_shape}."
+            ))
+            return
+
+        if spatial_prefix is not None:
+            if tuple(sl_shape[:-1]) not in (tuple(), spatial_prefix):
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_SHAPE,
+                    path=sl_path,
+                    message=(
+                        f"The 'Spectral_line' array at '{sl_path}' must have either shape (4,) or "
+                        f"{spatial_prefix + (4,)}, found {sl_shape}."
+                    )
+                ))
+            return
+
+        allowed_prefixes: set[tuple[int, ...]] = {tuple()}
+        if base_count is not None:
+            allowed_prefixes.add((base_count,))
+        if base_count is not None and replicate_count is not None:
+            allowed_prefixes.add((base_count, replicate_count))
+
+        if tuple(sl_shape[:-1]) not in allowed_prefixes:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_SHAPE,
+                path=sl_path,
+                message=(
+                    f"The 'Spectral_line' array at '{sl_path}' has invalid shape {sl_shape}. "
+                    f"Allowed prefixes before the final coordinate axis are {sorted(allowed_prefixes)}."
+                )
+            ))
+
+    has_2d_feature_data = False
+
+    if 'Raw_data' in node:
+        raw_data_path = concatenate_paths(path, 'Raw_data')
+        raw_data_node = node['Raw_data'] 
+        if get_node_type(raw_data_node) != _NodeType.GROUP:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=raw_data_path,
+                message=f"For subtype 'SinglePoint_VIPA_v0.1', '{raw_data_path}' must be a group."
+            ))
+        else:
+            _2DArray_per_spectrum_path = concatenate_paths(raw_data_path, '2DArray_per_spectrum')
+            if not '2DArray_per_spectrum' in raw_data_node:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.MISSING_ARRAY,
+                    path=raw_data_path,
+                    message=f"For subtype 'SinglePoint_VIPA_v0.1', '{raw_data_path}' must contain a '2DArray_per_spectrum' array."
+                ))
+            else:
+                _validate_2d_raw_array(raw_data_node['2DArray_per_spectrum'], _2DArray_per_spectrum_path, expected_prefix=tuple(spatial_shape))
+                has_2d_feature_data = True
+
+    calibration_group = node.get('Calibration', None)
+    calibration_raw_group = None
+    if calibration_group is not None:
+        if get_node_type(calibration_group) != _NodeType.GROUP:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=concatenate_paths(path, 'Calibration'),
+                message=f"The '{concatenate_paths(path, 'Calibration')}' node must be a group when present."
+            ))
+        if 'Raw_data' in calibration_group:
+            calibration_raw_group = calibration_group['Raw_data']
+            cal_raw_path = concatenate_paths(path, 'Calibration/Raw_data')
+            if get_node_type(calibration_raw_group) != _NodeType.GROUP:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_TYPE,
+                    path=cal_raw_path,
+                    message=f"For subtype 'SinglePoint_VIPA_v0.1', '{cal_raw_path}' must be a group."
+                ))
+                calibration_raw_group = None
+
+    if calibration_raw_group is not None:
+        calibration_items = [
+            k for k in calibration_group.keys()
+            if re.match(r'^(\d+)$', k)
+        ]
+        for item_name in calibration_items:
+            cal_item = calibration_group[item_name]
+            cal_item_path = concatenate_paths(path, f'Calibration/{item_name}')
+            cal_raw_item_path = concatenate_paths(path, f'Calibration/Raw_data/{item_name}')
+
+            if get_node_type(cal_item) != _NodeType.ARRAY:
+                continue
+            cal_item_shape, _ = get_array_shape_and_dtype(cal_item)
+            if cal_item_shape is None or len(cal_item_shape) < 1:
+                errs.append(ValidationError(
+                    level=ValidationLevel.CRITICAL,
+                    type=ValidationType.MISSING_ATTRIBUTE,
+                    path=cal_item_path,
+                    message=f"The calibration array '{cal_item_path}' must define a non-empty shape."
+                ))
+                continue
+
+            if item_name not in calibration_raw_group:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.MISSING_GROUP,
+                    path=cal_raw_item_path,
+                    message=(
+                        f"Missing mirrored group '{cal_raw_item_path}' for calibration item '{cal_item_path}'."
+                    )
+                ))
+                continue
+            if get_node_type(calibration_raw_group[item_name]) != _NodeType.GROUP:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_TYPE,
+                    path=cal_raw_item_path,
+                    message=f"The node '{cal_raw_item_path}' must be a group containing '2DArray_per_spectrum'."
+                ))
+                continue
+
+            raw_item_group = calibration_raw_group[item_name]
+            if '2DArray_per_spectrum' not in raw_item_group:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.MISSING_ARRAY,
+                    path=cal_raw_item_path,
+                    message=f"The group '{cal_raw_item_path}' must contain '2DArray_per_spectrum'."
+                ))
+                continue
+
+            raw_array_path = concatenate_paths(cal_raw_item_path, '2DArray_per_spectrum')
+            replicate_count, valid_shape = _validate_2d_raw_array(
+                raw_item_group['2DArray_per_spectrum'],
+                raw_array_path,
+                expected_prefix=tuple(cal_item_shape[:1]),
+            )
+            has_2d_feature_data = True
+
+            if 'Spectral_line' in raw_item_group and valid_shape:
+                _validate_spectral_line_array(
+                    raw_item_group['Spectral_line'],
+                    concatenate_paths(cal_raw_item_path, 'Spectral_line'),
+                    base_count=cal_item_shape[0],
+                    replicate_count=replicate_count,
+                )
+
+    if not has_2d_feature_data:
+        errs.append(ValidationError(
+            level=ValidationLevel.ERROR,
+            type=ValidationType.MISSING_ARRAY,
+            path=path,
+            message=(
+                f"Subtype 'SinglePoint_VIPA_v0.1' requires feature '2DArray_per_spectrum': "
+                f"provide '{concatenate_paths(path, 'Raw_data')}' and/or mirrored arrays under "
+                f"'{concatenate_paths(path, 'Calibration/Raw_data')}'."
+            )
+        ))
+
+    analysis_groups = [
+        key for key in node.keys()
+        if re.match(brim_obj_names.data.analysis_results + r'_(\d+)$', key)
+    ]
+    for analysis_name in analysis_groups:
+        analysis_path = concatenate_paths(path, analysis_name)
+        analysis_group = node[analysis_name]
+        if get_node_type(analysis_group) != _NodeType.GROUP:
+            continue
+        if 'Spectral_line' in analysis_group:
+            _validate_spectral_line_array(
+                analysis_group['Spectral_line'],
+                concatenate_paths(analysis_path, 'Spectral_line'),
+                spatial_prefix=spatial_shape,
+            )
+
+    return errs
 
 
 def validate_metadata(metadata_type: MetadataType, metadata_dict: dict[str]) -> list[ValidationError]:
@@ -180,7 +509,13 @@ def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=No
     # TODO: check the Fit_error group
     return errs
 
-def validate_data_group(node: dict, path: str) -> list[ValidationError]:
+def validate_data_group(
+    node: dict,
+    path: str,
+    *,
+    subtype: str | None = None,
+    subtype_features: set[str] | None = None,
+) -> list[ValidationError]:
     errs: list[ValidationError] = []
     node_type = get_node_type(node)
     if node_type != _NodeType.GROUP:
@@ -500,6 +835,19 @@ def validate_data_group(node: dict, path: str) -> list[ValidationError]:
             errs.extend(validate_analysis_group(node[dg_name], path=concatenate_paths(path, dg_name),
                                                 sparse=sparse, PSD_shape=PSD_shape))
 
+    if subtype == SubType.SinglePoint_VIPA_v0_1.value:
+        has_required_feature = False
+        if subtype_features is not None:
+            has_required_feature = '2DArray_per_spectrum' in subtype_features
+        # Validate deep subtype constraints even when declarations are incomplete.
+        if has_required_feature or subtype_features is None:
+            errs.extend(_validate_singlepoint_vipa_data_group(
+                node,
+                path,
+                sparse=sparse,
+                PSD_shape=PSD_shape,
+            ))
+
     return errs
 
 def validate_root_attrs(attrs: dict) -> list[ValidationError]:
@@ -525,7 +873,21 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
     attr_name = 'Subtype'
     subtype = attrs.get(attr_name, None)
     if subtype is not None:
-        # TODO validate the subtype value when the allowed subtypes are defined
+        if not isinstance(subtype, str):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=generate_attr_path(path, attr_name),
+                message=f"The '{attr_name}' attribute must be a string, found {type(subtype).__name__}."
+            ))
+        if subtype not in SubType:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_VALUE,
+                path=generate_attr_path(path, attr_name),
+                message=f"Unsupported subtype '{subtype}'. Supported subtypes are: {sorted([st.value for st in SubType])}."
+            ))
+
         attr_name = 'Subtype_features'
         subtype_features = attrs.get(attr_name, None)
         if subtype_features is None:
@@ -535,9 +897,54 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
                 path=generate_attr_path(path, attr_name),
                 message=f"When 'Subtype' is specified, it is recommended to provide the '{attr_name}' attribute as well."
             ))
+        else:
+            if not isinstance(subtype_features, (list, tuple)):
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_TYPE,
+                    path=generate_attr_path(path, attr_name),
+                    message=f"The '{attr_name}' attribute must be a list (or tuple) of feature names, found {type(subtype_features).__name__}."
+                ))
+            if not all(isinstance(feature, str) for feature in subtype_features):
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_TYPE,
+                    path=generate_attr_path(path, attr_name),
+                    message=f"All entries in '{attr_name}' must be strings."
+                ))
+        if subtype in SubType and isinstance(subtype_features, (list, tuple)) and \
+            all(isinstance(feature, str) for feature in subtype_features):
+            subtype_enum = SubType(subtype)
+            declared_features = set(subtype_features)
+            required_features = {feature.name for feature in SUBTYPE_FEATURES[subtype_enum] if feature.required}
+            optional_features = {feature.name for feature in SUBTYPE_FEATURES[subtype_enum] if not feature.required}
+            allowed_features = required_features | optional_features
+
+            missing_features = required_features - declared_features
+            if missing_features:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_VALUE,
+                    path=generate_attr_path(path, attr_name),
+                    message=f"Subtype '{subtype}' requires feature(s) {sorted(missing_features)} to be listed in '{attr_name}'."
+                ))
+
+            unknown_features = declared_features - allowed_features
+            if unknown_features:
+                errs.append(ValidationError(
+                    level=ValidationLevel.WARNING,
+                    type=ValidationType.INVALID_VALUE,
+                    path=generate_attr_path(path, attr_name),
+                    message=f"Unknown feature(s) {sorted(unknown_features)} listed in '{attr_name}' for subtype '{subtype}'."
+                ))
     return errs
 
-def validate_Brillouin_data_group(node: dict) -> list[ValidationError]:
+def validate_Brillouin_data_group(
+    node: dict,
+    *,
+    subtype: str | None = None,
+    subtype_features: set[str] | None = None,
+) -> list[ValidationError]:
     errs: list[ValidationError] = []
     path = 'Brillouin_data'
     node_type = get_node_type(node)
@@ -612,7 +1019,12 @@ def validate_Brillouin_data_group(node: dict) -> list[ValidationError]:
     else:
         # validate each data group
         for dg_name, dg_index in data_groups:
-            errs.extend(validate_data_group(node[dg_name], path=concatenate_paths(path, dg_name)))
+            errs.extend(validate_data_group(
+                node[dg_name],
+                path=concatenate_paths(path, dg_name),
+                subtype=subtype,
+                subtype_features=subtype_features,
+            ))
 
     return errs
 
@@ -647,6 +1059,8 @@ def validate_json(json_descriptor: str) -> list[ValidationError]:
             path=path,
             message=f"There must be a group at the root level, found '{node_type}'."
         ))
+    subtype: str | None = None
+    subtype_features: set[str] | None = None
     attrs = get_attributes(descriptor_dict)
     if attrs is None:
         errs.append(ValidationError(
@@ -657,12 +1071,22 @@ def validate_json(json_descriptor: str) -> list[ValidationError]:
         ))
     else:
         errs.extend(validate_root_attrs(attrs))
+        raw_subtype = attrs.get('Subtype', None)
+        if isinstance(raw_subtype, str):
+            subtype = raw_subtype
+        raw_subtype_features = attrs.get('Subtype_features', None)
+        if isinstance(raw_subtype_features, (list, tuple)) and all(isinstance(x, str) for x in raw_subtype_features):
+            subtype_features = set(raw_subtype_features)
     
     # check the Brillouin_data group
     path = 'Brillouin_data'
     brillouin_data_group = descriptor_dict.get('Brillouin_data', None)
     if brillouin_data_group is not None:
-        errs.extend(validate_Brillouin_data_group(brillouin_data_group))
+        errs.extend(validate_Brillouin_data_group(
+            brillouin_data_group,
+            subtype=subtype,
+            subtype_features=subtype_features,
+        ))
     else:
         errs.append(ValidationError(
             level=ValidationLevel.CRITICAL,

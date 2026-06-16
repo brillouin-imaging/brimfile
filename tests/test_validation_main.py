@@ -11,6 +11,7 @@ from brimfile.validation.main import (
     ValidationType,
     validate_analysis_group,
     validate_data_group,
+    validate_root_attrs,
 )
 
 
@@ -292,3 +293,228 @@ def test_analysis_quantity_validation_is_not_key_order_sensitive():
         path_contains="Shift_AS_0",
     )
     assert len(type_errors) == 1
+
+
+def test_validate_root_attrs_accepts_singlepoint_vipa_with_required_feature():
+    attrs = {
+        "brim_version": "0.1",
+        "Subtype": "SinglePoint_VIPA_v0.1",
+        "Subtype_features": ["2DArray_per_spectrum"],
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    subtype_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        path_contains="Subtype",
+    )
+    assert subtype_errors == []
+
+
+def test_validate_root_attrs_rejects_unknown_subtype_value():
+    attrs = {
+        "brim_version": "0.1",
+        "Subtype": "UnknownSubtype_v0.1",
+        "Subtype_features": ["2DArray_per_spectrum"],
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    subtype_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.ERROR,
+        path_contains="Subtype",
+    )
+    assert len(subtype_errors) == 1
+
+
+def test_validate_root_attrs_requires_required_singlepoint_feature_in_subtype_features():
+    attrs = {
+        "brim_version": "0.1",
+        "Subtype": "SinglePoint_VIPA_v0.1",
+        "Subtype_features": ["Spectral_line"],
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    feature_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.ERROR,
+        path_contains="Subtype_features",
+    )
+    assert len(feature_errors) == 1
+
+
+def test_validate_root_attrs_warns_on_unknown_feature_for_singlepoint_subtype():
+    attrs = {
+        "brim_version": "0.1",
+        "Subtype": "SinglePoint_VIPA_v0.1",
+        "Subtype_features": ["2DArray_per_spectrum", "UnknownFeature"],
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    feature_warnings = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.WARNING,
+        path_contains="Subtype_features",
+    )
+    assert len(feature_warnings) == 1
+
+
+def test_singlepoint_vipa_requires_2darray_storage_in_data_or_calibration_raw_data():
+    node = _non_sparse_data_group()
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        subtype="SinglePoint_VIPA_v0.1",
+        subtype_features={"2DArray_per_spectrum"},
+    )
+
+    raw_feature_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ARRAY,
+        level=ValidationLevel.ERROR,
+        path_contains="Data_0",
+    )
+    assert any("2DArray_per_spectrum" in err.message for err in raw_feature_errors)
+
+
+def test_singlepoint_vipa_accepts_raw_data_with_matching_spatial_shape():
+    node = _non_sparse_data_group()
+    node["Raw_data"] = _array((2, 3, 4, 12, 24))
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        subtype="SinglePoint_VIPA_v0.1",
+        subtype_features={"2DArray_per_spectrum"},
+    )
+
+    raw_shape_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_SHAPE,
+        path_contains="Raw_data",
+    )
+    assert raw_shape_errors == []
+
+
+def test_singlepoint_vipa_rejects_raw_data_with_wrong_spatial_prefix():
+    node = _non_sparse_data_group()
+    node["Raw_data"] = _group(**{"2DArray_per_spectrum": _array((2, 3, 99, 12, 24))})
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        subtype="SinglePoint_VIPA_v0.1",
+        subtype_features={"2DArray_per_spectrum"},
+    )
+
+    raw_shape_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_SHAPE,
+        level=ValidationLevel.ERROR,
+        path_contains="Raw_data",
+    )
+    assert len(raw_shape_errors) >= 1
+
+
+def test_singlepoint_vipa_validates_spectral_line_shape_in_analysis_group():
+    node = _non_sparse_data_group()
+    node["Raw_data"] = _array((2, 3, 4, 12, 24))
+    node["Analysis_0"]["Spectral_line"] = _array((2, 3, 4, 3))
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        subtype="SinglePoint_VIPA_v0.1",
+        subtype_features={"2DArray_per_spectrum", "Spectral_line"},
+    )
+
+    spectral_line_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_SHAPE,
+        level=ValidationLevel.ERROR,
+        path_contains="Analysis_0/Spectral_line",
+    )
+    assert len(spectral_line_errors) == 1
+
+
+def test_singlepoint_vipa_accepts_calibration_raw_data_mirror_structure():
+    node = _non_sparse_data_group()
+    node["Calibration"] = _group(
+        **{
+            "0": _array((5, 151)),
+            "Index": _array((2, 3, 4), dtype="int32"),
+        },
+        Raw_data=_group(
+            **{
+                "0": _group(
+                **{
+                    "2DArray_per_spectrum": _array((5, 12, 24)),
+                    "Spectral_line": _array((5, 4)),
+                }
+                )
+            }
+        ),
+    )
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        subtype="SinglePoint_VIPA_v0.1",
+        subtype_features={"2DArray_per_spectrum", "Spectral_line"},
+    )
+
+    cal_raw_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_GROUP,
+        path_contains="Calibration/Raw_data",
+    )
+    assert cal_raw_errors == []
+
+
+def test_singlepoint_vipa_accepts_calibration_raw_data_numeric_material_groups():
+    node = _non_sparse_data_group()
+    node["Calibration"] = _group(
+        **{
+            "0": _array((5, 151), attributes={"Shift": 7.0, "Units": "GHz"}),
+            "1": _array((3, 151), attributes={"Shift": 8.5, "Units": "GHz"}),
+            "Index": _array((2, 3, 4), dtype="int32"),
+        },
+        Raw_data=_group(
+            **{
+                "0": _group(
+                    **{
+                        "2DArray_per_spectrum": _array((5, 12, 24)),
+                        "Spectral_line": _array((5, 4)),
+                    }
+                ),
+                "1": _group(
+                    **{
+                        "2DArray_per_spectrum": _array((3, 2, 12, 24)),
+                        "Spectral_line": _array((3, 2, 4)),
+                    }
+                ),
+            }
+        ),
+    )
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        subtype="SinglePoint_VIPA_v0.1",
+        subtype_features={"2DArray_per_spectrum", "Spectral_line"},
+    )
+
+    calibration_errors = _errors_matching(
+        errors,
+        level=ValidationLevel.ERROR,
+        path_contains="Calibration/Raw_data",
+    )
+    assert calibration_errors == []
