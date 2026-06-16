@@ -41,9 +41,38 @@ if __name__ == "__main__":
 
     f = brim.File.create(filename, store_type=brim.StoreType.AUTO)
 
+    # get the subtype of the file (should be None at this point since we haven't written any data yet)
+    st = f.subtype
+
     PSD, freq_GHz, (dz,dy,dx), shift_GHz, width_GHz = generate_data()
 
     d0 = f.create_data_group(PSD, freq_GHz, (dz,dy,dx), name='test1')
+    d1 = f.create_data_group(PSD, freq_GHz, (dz,dy,dx), name='test2')
+
+    # add calibration groups to the data groups
+    N = np.prod(PSD.shape[:-1])
+    index = np.arange(N).reshape(PSD.shape[:-1])
+    cal_d = {'spectra': np.empty((N, 50)), 'shift': 7.0, 'shift_units': 'GHz'}
+    d0.create_calibration_group(index = index,
+        calibration_data=[cal_d],
+        attributes={'description': 'This is a test calibration group', 'Temperature': brim.Metadata.Item(22.0, 'C')})
+    #test the same_as argument
+    d1.create_calibration_group(same_as=0)
+    d1.get_calibration() 
+    
+    # retrrieve calibration data
+    c0 = d0.get_calibration()
+    c0.get_spectrum_at_coor((1,2,3))
+
+    # add raw data and calibration data in the format of the SinglePoint_VIPA subtype
+    raw_data = np.tile(PSD[..., np.newaxis, np.newaxis, :], (1, 1, 1, 2, 17, 1))
+    from brimfile.subtypes import single_point_VIPA
+    single_point_VIPA.add_rawdata(d0, raw_data)
+    single_point_VIPA.add_rawdata_calibration(c0, {0: np.empty((N, 23, 59))})
+    single_point_VIPA.add_calibration_spectral_line(c0, np.empty((4)), linewidth = 4)
+
+    # check the subtype of the file (should be SinglePoint_VIPA_v0.1 since we added raw data in the format of this subtype)
+    st = f.subtype
 
     # print all the available metadata fields and their description
     brim.metadata.print_schema(True)
@@ -70,6 +99,11 @@ if __name__ == "__main__":
                                              'width': width_GHz, 'width_units': 'Hz'},
                                              name = 'test1_analysis',
                                              fit_model=brim.AnalysisResults.FitModel.Lorentzian)
+    
+    # add the spectral line to the analysis results in the format of the SinglePoint_VIPA subtype
+    single_point_VIPA.add_analysis_results_spectral_line(ar, np.empty((4)))
+    single_point_VIPA.get_raw_spectrum_in_image(d0, (1,2,3), analysis_results=ar)
+
     f.close()
 
 
