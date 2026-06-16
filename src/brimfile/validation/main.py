@@ -880,7 +880,10 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
                 path=generate_attr_path(path, attr_name),
                 message=f"The '{attr_name}' attribute must be a string, found {type(subtype).__name__}."
             ))
-        if subtype not in SubType:
+        try:
+            # this will raise a ValueError if the subtype is not valid
+            subtype = SubType(subtype) 
+        except ValueError:
             errs.append(ValidationError(
                 level=ValidationLevel.ERROR,
                 type=ValidationType.INVALID_VALUE,
@@ -912,7 +915,7 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
                     path=generate_attr_path(path, attr_name),
                     message=f"All entries in '{attr_name}' must be strings."
                 ))
-        if subtype in SubType and isinstance(subtype_features, (list, tuple)) and \
+        if isinstance(subtype, SubType) and isinstance(subtype_features, (list, tuple)) and \
             all(isinstance(feature, str) for feature in subtype_features):
             subtype_enum = SubType(subtype)
             declared_features = set(subtype_features)
