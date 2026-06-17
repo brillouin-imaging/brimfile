@@ -466,7 +466,7 @@ class Data:
         return (None, None)
 
     def create_calibration_group(self, *, index: NDArray[np.integer] | None = None, calibration_data: list[dict[str, Any]] | None = None,
-                                 timestamp: list[np.array] | None = None, same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
+                                 timestamp: list[NDArray[Any]] | None = None, same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
                                  compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Calibration:
         """
         Create a new calibration group in the current data group.
@@ -478,7 +478,7 @@ class Data:
                 It can be omitted if each element in `calibration_data` contains only one spectrum.
             calibration_data (list[dict[str, Any]] | None, optional): Calibration entries to store.
                 Each dictionary must contain `spectra` and `shift` keys, and may provide `shift_units`.                
-            timestamp (list[np.array] | None, optional): Timestamp arrays corresponding to each calibration
+            timestamp (list[NDArray[Any]] | None, optional): Timestamp arrays corresponding to each calibration
                 entry. If provided, its length must match `calibration_data`. Defaults to None.
             same_as (int | None, optional): If provided, links this calibration group to an existing
                 calibration via the `Same_as` attribute. When set, the other data arguments are ignored.

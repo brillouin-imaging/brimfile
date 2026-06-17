@@ -1,5 +1,7 @@
 import re
 import numpy as np
+from typing import Any
+from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync
 
@@ -210,7 +212,7 @@ def _guess_chunks(
 
     return tuple(int(x) for x in chunks)
 
-def _determine_chunk_size(arr: np.array, n_unsplit_dims: int = 1) -> tuple:
+def _determine_chunk_size(arr: NDArray[Any], n_unsplit_dims: int = 1) -> tuple:
     """
     Use the same heuristic as the zarr library to determine chunk sizes, while
     keeping the trailing ``n_unsplit_dims`` dimensions unchanged.
