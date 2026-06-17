@@ -26,7 +26,7 @@ def concatenate_paths(*paths):
     return con_path
 
 
-def list_objects_matching_pattern(file: FileAbstraction, parent_obj, regexp: str) -> list:
+async def list_objects_matching_pattern_async(file: FileAbstraction, parent_obj, regexp: str) -> list:
     """
     Lists objects within a parent object that match a given regular expression pattern.
     Args:
@@ -42,7 +42,7 @@ def list_objects_matching_pattern(file: FileAbstraction, parent_obj, regexp: str
     # n_par = pattern.groups
 
     matched_objects = []
-    for obj_name in sync(file.list_objects(parent_obj)):
+    for obj_name in await file.list_objects(parent_obj):
         match = pattern.match(obj_name)
         if match:
             matched_objects.append((obj_name,) + match.groups())
@@ -209,3 +209,33 @@ def _guess_chunks(
         idx += 1
 
     return tuple(int(x) for x in chunks)
+
+def _determine_chunk_size(arr: np.array, n_unsplit_dims: int = 1) -> tuple:
+    """
+    Use the same heuristic as the zarr library to determine chunk sizes, while
+    keeping the trailing ``n_unsplit_dims`` dimensions unchanged.
+    """
+    shape = arr.shape
+    typesize = arr.itemsize
+
+    if n_unsplit_dims < 0:
+        raise ValueError("n_unsplit_dims must be >= 0")
+
+    # If all dimensions are preserved (or there are no split dimensions), do not chunk.
+    if len(shape) <= max(1, n_unsplit_dims):
+        return tuple(shape)
+
+    n_split_dims = len(shape) - n_unsplit_dims
+    split_shape = shape[:n_split_dims]
+    unsplit_shape = shape[n_split_dims:]
+
+    unsplit_elements = int(np.prod(unsplit_shape)) if unsplit_shape else 1
+    target_sizes = _guess_chunks.__kwdefaults__
+    # Scale target chunk bytes based on preserved trailing dimensions.
+    target_sizes = {
+        k: max(1, target_sizes[k] // unsplit_elements)
+        for k in target_sizes.keys()
+    }
+
+    chunks = _guess_chunks(split_shape, typesize, arr.nbytes, **target_sizes)
+    return chunks + unsplit_shape

@@ -1,4 +1,5 @@
 from brimfile import File, StoreType, Data
+from brimfile.file_abstraction import sync
 import numpy as np
 import h5py
 
@@ -74,7 +75,7 @@ class BrimConverter:
         all_metadata = md.all_to_dict() # TODO: not used yet
 
         # scrape spatial information and store locally
-        cv, px_size = d._load_spatial_mapping() # extract z, y, x pixel sizes
+        cv, px_size = sync(d._load_spatial_mapping_async()) # extract z, y, x pixel sizes
         dz, dy, dx = px_size[0].value, px_size[1].value, px_size[2].value # store them
         Nz, Ny, Nx = cv.shape # store data shape for z, y, x
         z, y, x = np.arange(Nz)*dz, np.arange(Ny)*dy, np.arange(Nx)*dx # TODO: SAL, FOR WRITING TO ABSCISSA IN FUTURE

@@ -2,17 +2,21 @@ import numpy as np
 import asyncio
 
 import warnings
+from typing import Any
+from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
-from .utils import concatenate_paths, list_objects_matching_pattern, get_object_name, set_object_name
-from .utils import np_array_to_smallest_int_type, _guess_chunks
+from .utils import concatenate_paths, list_objects_matching_pattern_async, get_object_name, set_object_name
+from .utils import np_array_to_smallest_int_type, _determine_chunk_size
 
 from .metadata import Metadata
+from .metadata.types import MetadataItem
 
 from numbers import Number
 
 from . import units
 from .analysis_results import AnalysisResults
+from .calibration import Calibration
 from .constants import brim_obj_names
 
 __docformat__ = "google"
@@ -25,7 +29,8 @@ class Data:
     # make AnalysisResults available as an attribute of Data
     AnalysisResults = AnalysisResults
 
-    def __init__(self, file: FileAbstraction, path: str, *, newly_created = False):
+    def __init__(self, file: FileAbstraction, path: str, *, 
+                 newly_created: bool = False, _initialize: bool = True):
         """
         Initialize the Data object. This constructor should not be called directly.
 
@@ -34,14 +39,25 @@ class Data:
             path (str): The path to the data group within the file.
             newly_created (bool): Whether this data group is being created as new.
                             If True, the constructor will not attempt to load spatial mapping.
+            _initialize (bool): FOR INTERNAL USE ONLY. Whether to automatically initialize the current data group. 
+                Set to False if you want to initialize them manually later using the _init_async() method. Default is True.
         """
         self._file = file
         self._path = path
-        self._group = sync(file.open_group(path))
+        
 
-        self._sparse = self._load_sparse_flag()
+        if _initialize:
+            sync(self._init_async(newly_created=newly_created))        
+    
+    async def _init_async(self, newly_created: bool = False) -> None:
+        """
+        See __init__() for the description of the arguments.
+        """
+        self._group = await self._file.open_group(self._path)
+
+        self._sparse = await self._load_sparse_flag_async()
         # the _spatial_map is None for non sparse data but the _spatial_map_px_size should always be valid
-        self._spatial_map, self._spatial_map_px_size = self._load_spatial_mapping() if not newly_created else (None, None)
+        self._spatial_map, self._spatial_map_px_size = await self._load_spatial_mapping_async() if not newly_created else (None, None)
 
     def get_name(self):
         """
@@ -55,7 +71,7 @@ class Data:
         """
         return int(self._path.split('/')[-1].split('_')[-1])
 
-    def _load_sparse_flag(self) -> bool:
+    async def _load_sparse_flag_async(self) -> bool:
         """
         Load the 'Sparse' flag for the data group.
 
@@ -63,7 +79,7 @@ class Data:
             bool: The value of the 'Sparse' flag, or False if the attribute is not found or invalid.
         """
         try:
-            sparse = sync(self._file.get_attr(self._group, 'Sparse'))
+            sparse = await self._file.get_attr(self._group, 'Sparse')
             if isinstance(sparse, bool):
                 return sparse
             else:
@@ -74,7 +90,7 @@ class Data:
             # if the attribute is not found, return the default value False
             return False
 
-    def _load_spatial_mapping(self, load_in_memory: bool=True) -> tuple:
+    async def _load_spatial_mapping_async(self, load_in_memory: bool=True) -> tuple:
         """
         Load a spatial mapping in the same format as 'Cartesian visualisation',
         irrespectively on whether 'Spatial_map' is defined instead.
@@ -94,14 +110,14 @@ class Data:
         sm_path = concatenate_paths(
             self._path, brim_obj_names.data.spatial_map)
         
-        if sync(self._file.object_exists(cv_path)):
-            cv = sync(self._file.open_dataset(cv_path))
+        if await self._file.object_exists(cv_path):
+            cv = await self._file.open_dataset(cv_path)
 
             #read the pixel size from the 'Cartesian visualisation' dataset
             px_size_val = None
             px_size_units = None
             try:
-                px_size_val = sync(self._file.get_attr(cv, 'element_size'))
+                px_size_val = await self._file.get_attr(cv, 'element_size')
                 if px_size_val is None or len(px_size_val) != 3:
                     raise ValueError(
                         "The 'element_size' attribute of 'Cartesian_visualisation' must be a tuple of 3 elements")
@@ -109,8 +125,8 @@ class Data:
                 px_size_val = 3*(1,)
                 warnings.warn(
                     "No pixel size defined for Cartesian visualisation")            
-            px_size_units = sync(units.of_attribute(
-                    self._file, cv, 'element_size'))
+            px_size_units = await units.of_attribute(
+                    self._file, cv, 'element_size')
             px_size = ()
             for i in range(3):
                 # if px_size_val[i] is not a number, set it to 1 and px_size_units to None
@@ -121,11 +137,11 @@ class Data:
                     
 
             if load_in_memory:
-                cv = np.array(cv)
+                cv = await cv.to_np_array()  # load the spatial map in memory as a numpy array
                 cv = np_array_to_smallest_int_type(cv)
 
-        elif sync(self._file.object_exists(sm_path)):
-            def load_spatial_map_from_file(self):
+        elif await self._file.object_exists(sm_path):
+            async def load_spatial_map_from_file():
                 async def load_coordinate_from_sm(coord: str):
                     res = np.empty(0)  # empty array
                     try:
@@ -149,7 +165,7 @@ class Data:
                             "The 'Spatial_map' dataset is invalid")
                     return arr
 
-                x, y, z = _gather_sync(
+                x, y, z = await asyncio.gather(
                     load_coordinate_from_sm('x'),
                     load_coordinate_from_sm('y'),
                     load_coordinate_from_sm('z')
@@ -170,7 +186,7 @@ class Data:
                     d = (np.max(x)-np.min(x))/(n-1)
                 return n, d
 
-            x, y, z = load_spatial_map_from_file(self)
+            x, y, z = await load_spatial_map_from_file()
 
             # TODO extend the reconstruction to non-cartesian cases
 
@@ -181,7 +197,7 @@ class Data:
             indices = np_array_to_smallest_int_type(np.lexsort((x, y, z)))
             cv = np.reshape(indices, (nZ, nY, nX))
 
-            px_size_units = sync(units.of_object(self._file, sm_path))
+            px_size_units = await units.of_object(self._file, sm_path)
             px_size = ()
             for i in range(3):
                 px_sz = (dZ, dY, dX)[i]
@@ -192,13 +208,13 @@ class Data:
                 px_size += (Metadata.Item(px_sz, px_unit),)
         elif not self._sparse:
             try:
-                px_sz = sync(self._file.get_attr(self._group, 'element_size'))
+                px_sz = await self._file.get_attr(self._group, 'element_size')
                 if len(px_sz) != 3:
                     raise ValueError(
                         "The 'element_size' attribute must be a tuple of 3 elements")
                 px_unit = None
                 try:
-                    px_unit = sync(units.of_attribute(self._file, self._group, 'element_size'))
+                    px_unit = await units.of_attribute(self._file, self._group, 'element_size')
                 except Exception:
                     warnings.warn("Pixel size unit is not provided for non-sparse data.")
                 px_size = tuple(Metadata.Item(el, px_unit) for el in px_sz)
@@ -449,6 +465,145 @@ class Data:
             return (pars, pars_names)
         return (None, None)
 
+    def create_calibration_group(self, *, index: NDArray[np.integer] | None = None, calibration_data: list[dict[str, Any]] | None = None,
+                                 timestamp: list[np.array] | None = None, same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
+                                 compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Calibration:
+        """
+        Create a new calibration group in the current data group.
+        For more details on the expected format of the calibration data, see https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md.
+
+        Parameters:
+            index (np.array | None, optional): Index array for the calibration spectra. For sparse data,
+                this must be 1D; for non-sparse data, this must be 3D.  
+                It can be omitted if each element in `calibration_data` contains only one spectrum.
+            calibration_data (list[dict[str, Any]] | None, optional): Calibration entries to store.
+                Each dictionary must contain `spectra` and `shift` keys, and may provide `shift_units`.                
+            timestamp (list[np.array] | None, optional): Timestamp arrays corresponding to each calibration
+                entry. If provided, its length must match `calibration_data`. Defaults to None.
+            same_as (int | None, optional): If provided, links this calibration group to an existing
+                calibration via the `Same_as` attribute. When set, the other data arguments are ignored.
+                Defaults to None.
+            attributes (dict[str, MetadataItem], optional): Additional attributes to attach to the calibration group.
+                Can be one of ('Datetime', 'Description', 'Temperature', 'FSR') with the relative units (when relevant).
+            compression (FileAbstraction.Compression, optional): Compression settings used for created
+                datasets. Defaults to FileAbstraction.Compression().
+
+        Returns:
+            Calibration: The newly created calibration group.
+
+        Raises:
+            ValueError: If the provided calibration data, index, or timestamp is invalid or inconsistent.
+        """
+        calibration_path = concatenate_paths(self._path, brim_obj_names.data.calibration)
+        calibration_group = sync(self._file.create_group(calibration_path))
+
+        # if same_as is provided, create the 'Same_as' attribute to link the calibration group to an existing one
+        if same_as is not None:
+            sync(self._file.create_attr(calibration_group, 'Same_as', same_as))
+        else: # if same_as is provided, the other parameters are ignored
+            # check that calibration_data is provided and valid
+            if calibration_data is None:
+                raise ValueError("'calibration_data' is required when 'same_as' is not provided")
+            if not isinstance(calibration_data, (list, tuple)):
+                calibration_data = [calibration_data,]
+            # check that index is valid if provided
+            if index is not None:
+                # TODO: check of the shape of 'index' is compatible with PSD
+                if self._sparse and index.ndim != 1:
+                    raise ValueError("'index' must be a 1D array for sparse data")
+                if not self._sparse and index.ndim != 3:
+                    raise ValueError("'index' must be a 3D array for non-sparse data")
+            # check that timestamp is valid if provided
+            if timestamp is not None: 
+                if not isinstance(timestamp, (list, tuple)):
+                    timestamp = [timestamp,]
+                if len(timestamp) != len(calibration_data):
+                    raise ValueError("If 'timestamp' is provided, it must have the same length as 'calibration_data'")            
+
+            for m, calib in enumerate(calibration_data):
+                # check that each element in calibration_data is a dictionary containing 'spectra' and 'shift' keys
+                if not isinstance(calib, dict):
+                    raise ValueError("Each element in 'calibration_data' must be a dictionary")
+                if 'spectra' not in calib.keys() or 'shift' not in calib.keys():
+                    raise ValueError("Each calibration data dictionary must contain 'spectra' and 'shift' keys")
+                # retrieve the spectra, shift and shift_units from the calibration data and check that they are valid
+                cal_spectra = np.array(calib['spectra'])
+                if cal_spectra.ndim != 2:
+                    raise ValueError("'spectra' in calibration data must be a 2D array. If only one spectrum is provided, set the first dimension to 1.")
+                cal_shift = calib['shift']
+                cal_shift_units = calib.get('shift_units', None)
+                if cal_shift_units is None:
+                    cal_shift_units = 'GHz'
+                    warnings.warn("No units provided for 'shift' in calibration data, defaulting to GHz")
+                # check that index is compatible with the shape of the spectra
+                if index is None and cal_spectra.shape[0] != 1:
+                    raise ValueError("If 'index' is not provided, each element in 'calibration_data' must contain only one spectrum (i.e. have shape (1, n))")
+                if index is not None and np.max(index) >= cal_spectra.shape[0]:
+                    raise ValueError("If 'index' is provided, its maximum value must be less than the number of spectra in each calibration data element")
+                # add the m arrays together with their attributes to the file
+                spectra_dataset = sync(self._file.create_dataset(calibration_group, f'{m}', cal_spectra, chunk_size=_determine_chunk_size(cal_spectra), compression=compression))
+                sync(self._file.create_attr(spectra_dataset, 'Shift', cal_shift))
+                units.add_to_attribute(self._file, spectra_dataset, 'Shift', cal_shift_units)
+                if timestamp is not None:
+                    timestamp_array = np.array(timestamp[m])
+                    if timestamp_array.ndim != 1 or timestamp_array.shape[0] != cal_spectra.shape[0]:
+                        raise ValueError("Each element in 'timestamp' must be a 1D array with the same length as the number of spectra in each calibration data element")
+                    sync(self._file.create_dataset(calibration_group, f'Timestamp_{m}', timestamp_array, compression=compression))
+            # add the index array to the file
+            if index is not None:
+                sync(self._file.create_dataset(calibration_group, 'Index', index, compression=compression))
+        
+        from .calibration import _STANDARD_ATTRIBUTES
+        # add any additional attributes to the calibration group, checking that they do not overwrite the standard
+        if attributes is not None:
+            for key, value in attributes.items():
+                if key not in _STANDARD_ATTRIBUTES:
+                    warnings.warn(f"Attribute '{key}' is not a standard attribute for calibration groups.\
+                                   Standard attributes are: {', '.join(_STANDARD_ATTRIBUTES)}. \
+                                   Make sure this is intentional!")
+                if not isinstance(value, MetadataItem):
+                    value = MetadataItem(value)
+                sync(self._file.create_attr(calibration_group, key, value.value))
+                if value.units is not None:
+                    units.add_to_attribute(self._file, calibration_group, key, value.units)
+
+        return Calibration(self._file, calibration_path, data_group=self)
+    
+    def get_calibration(self) -> Calibration:
+        """
+        Synchronous wrapper for `get_calibration_async` (see doc for `brimfile.data.Data.get_calibration_async`)
+        """
+        return sync(self.get_calibration_async())
+
+    async def get_calibration_async(self) -> Calibration:
+        """
+        Retrieve the calibration group associated with the current data group.
+
+        Returns:
+            Calibration: The calibration group associated with the current data group.
+
+        Raises:
+            ValueError: If no calibration group is found in the current data group or the referenced calibration group does not exist.
+        """
+        calibration_path = concatenate_paths(self._path, brim_obj_names.data.calibration)
+        if not await self._file.object_exists(calibration_path):
+            raise ValueError(f"No calibration group found in {self._path}")
+        same_as = None
+        try:
+            same_as = await self._file.get_attr(calibration_path, 'Same_as')
+        except Exception:
+            pass #  same_as attribute is optional, if it does not exist we just ignore it
+        # if the 'Same_as' attribute exists, find the calibration group with the corresponding index
+        if same_as is not None:
+            try:
+                d_m = await Data.from_existing_async(self._file, same_as)
+                return await d_m.get_calibration_async()
+            except IndexError:
+                raise ValueError(f"Calibration group in {self._path} references non-existing calibration index {same_as} in the file")
+        cal_group = Calibration(self._file, calibration_path, data_group=self, _initialize=False)
+        await cal_group._init_async()
+        return cal_group
+
     def create_analysis_results_group(self, data_AntiStokes, data_Stokes=None, *,
                                           index: int = None, name: str = None, fit_model: 'Data.AnalysisResults.FitModel' = None) -> AnalysisResults:
         """
@@ -500,8 +655,8 @@ class Data:
 
         analysis_results_groups = []
 
-        matched_objs = list_objects_matching_pattern(
-            self._file, self._group, brim_obj_names.data.analysis_results + r"_(\d+)$")
+        matched_objs = sync(list_objects_matching_pattern_async(
+            self._file, self._group, brim_obj_names.data.analysis_results + r"_(\d+)$"))
         async def _make_dict_item(matched_obj, retrieve_custom_name):
             name = matched_obj[0]
             index = int(matched_obj[1])
@@ -632,27 +787,12 @@ class Data:
         # TODO: add and validate additional datasets (i.e. 'Parameters', 'Calibration_index', etc.)
 
         # Add datasets to the group
-        def determine_chunk_size(arr: np.array) -> tuple:
-            """"
-            Use the same heuristic as the zarr library to determine the chunk size, but without splitting the last dimension
-            """
-            shape = arr.shape
-            typesize = arr.itemsize
-            #if the array is 1D, do not chunk it
-            if len(shape) <= 1:
-                return (shape[0],)
-            target_sizes = _guess_chunks.__kwdefaults__
-            # divide the target size by the last dimension size to get the chunk size for the other dimensions
-            target_sizes = {k: target_sizes[k] // shape[-1] 
-                            for k in target_sizes.keys()}
-            chunks = _guess_chunks(shape[0:-1], typesize, arr.nbytes, **target_sizes)
-            return chunks + (shape[-1],)  # keep the last dimension size unchanged
         sync(self._file.create_dataset(
             self._group, brim_obj_names.data.PSD, data=PSD,
-            chunk_size=determine_chunk_size(PSD), compression=compression))
+            chunk_size=_determine_chunk_size(PSD), compression=compression))
         freq_ds = sync(self._file.create_dataset(
             self._group,  brim_obj_names.data.frequency, data=frequency,
-            chunk_size=determine_chunk_size(frequency), compression=compression))
+            chunk_size=_determine_chunk_size(frequency), compression=compression))
         units.add_to_object(self._file, freq_ds, freq_units)
 
         if scanning is not None:
@@ -687,7 +827,7 @@ class Data:
                         px_unit = 'um'
                     units.add_to_attribute(self._file, cv, 'element_size', px_unit)
 
-        self._spatial_map, self._spatial_map_px_size = self._load_spatial_mapping()
+        self._spatial_map, self._spatial_map_px_size = sync(self._load_spatial_mapping_async())
 
         if timestamp is not None:
             sync(self._file.create_dataset(
@@ -695,6 +835,13 @@ class Data:
 
     @staticmethod
     def list_data_groups(file: FileAbstraction, retrieve_custom_name=False) -> list:
+        """
+        Synchronous wrapper for `list_data_groups_async` (see doc for `brimfile.data.Data.list_data_groups_async`)
+        """
+        return sync(Data.list_data_groups_async(file, retrieve_custom_name))
+
+    @staticmethod
+    async def list_data_groups_async(file: FileAbstraction, retrieve_custom_name=False) -> list:
         """
         List all data groups in the brim file. The list is ordered by index.
 
@@ -707,7 +854,7 @@ class Data:
 
         data_groups = []
 
-        matched_objs = list_objects_matching_pattern(
+        matched_objs = await list_objects_matching_pattern_async(
             file, brim_obj_names.Brillouin_base_path, brim_obj_names.data.base_group + r"_(\d+)$")
         
         async def _make_dict_item(matched_obj, retrieve_custom_name):
@@ -722,7 +869,7 @@ class Data:
             return curr_obj_dict
         
         coros = [_make_dict_item(matched_obj, retrieve_custom_name) for matched_obj in matched_objs]
-        dicts = _gather_sync(*coros)
+        dicts = await asyncio.gather(*coros)
         for dict_item in dicts:
             data_groups.append(dict_item)        
         # Sort the data groups by index
@@ -731,7 +878,7 @@ class Data:
         return data_groups
 
     @staticmethod
-    def _get_existing_group_name(file: FileAbstraction, index: int) -> str:
+    async def _get_existing_group_name_async(file: FileAbstraction, index: int) -> str:
         """
         Get the name of an existing data group by index.
 
@@ -743,13 +890,32 @@ class Data:
             str: The name of the data group, or None if not found.
         """
         group_name: str = None
-        data_groups = Data.list_data_groups(file)
+        data_groups = await Data.list_data_groups_async(file)
         for dg in data_groups:
             if dg['index'] == index:
                 group_name = dg['name']
                 break
         return group_name
-
+    
+    @classmethod
+    async def from_existing_async(cls, file: FileAbstraction, index: int) -> 'Data':
+        """ 
+        Create a Data object from an existing data group in the file.
+        Args:
+            file (File): The parent File object.
+            index (int): The index of the existing data group.      
+        Returns:
+            Data: A Data object corresponding to the existing data group.   
+        Raises:
+            IndexError: If no data group with the specified index is found in the file.
+        """
+        group_name: str = await cls._get_existing_group_name_async(file, index)
+        if group_name is None:
+            raise IndexError(f"No data group with index {index} found in the file")
+        dg = cls(file, concatenate_paths(brim_obj_names.Brillouin_base_path, group_name), _initialize=False) 
+        await dg._init_async()
+        return dg
+    
     @classmethod
     def _create_new(cls, file: FileAbstraction, index: int, sparse: bool = False, name: str = None) -> 'Data':
         """

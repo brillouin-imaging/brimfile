@@ -6,6 +6,7 @@ from .data import Data
 from .utils import concatenate_paths
 from .constants import brim_obj_names
 from . import units
+from . import subtypes
 
 from .file_abstraction import FileAbstraction, StoreType, sync
 from .validation import validate_json, ValidationError, ValidationLevel
@@ -93,7 +94,8 @@ class File:
         return True
 
     @classmethod
-    def create(cls, filename: str, store_type: StoreType = StoreType.AUTO, brim_version: str = '0.1') -> 'File':
+    def create(cls, filename: str, store_type: StoreType = StoreType.AUTO, *, 
+               brim_version: str = '0.1') -> 'File':
         """
         Create a new brim file with the specified filename. If the file exists already it will generate an error.
 
@@ -194,7 +196,7 @@ class File:
             ValueError: If any of the data provided is not valid or consistent
         """
         if index is not None:
-            if Data._get_existing_group_name(self._file, index) is not None:
+            if sync(Data._get_existing_group_name_async(self._file, index)) is not None:
                 raise IndexError(
                     f"Data {index} already exists in {self._file.filename}")
         else:
@@ -234,13 +236,10 @@ class File:
 
         Returns:
             Data: The Data object corresponding to the specified index.
-        """
-        group_name: str = Data._get_existing_group_name(self._file, index)
-        if group_name is None:
-            raise IndexError(f"Data {index} not found")
-        data = Data(self._file, concatenate_paths(
-            brim_obj_names.Brillouin_base_path, group_name))
-        return data
+        Raises:
+            IndexError: If the specified index does not exist in the dataset.
+        """        
+        return sync(Data.from_existing_async(self._file, index))
 
     @property
     def filename(self) -> str:
@@ -251,3 +250,13 @@ class File:
             str: The filename of the brim file.
         """
         return self._file.filename
+    
+    @property
+    def subtype(self) -> subtypes.SubType:
+        """
+        Get the subtype of the brim file.
+
+        Returns:
+            subtypes.SubType: The subtype of the brim file.
+        """
+        return subtypes.get_subtype(self._file)

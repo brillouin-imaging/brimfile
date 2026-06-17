@@ -4,9 +4,15 @@ Unit tests for utility functions in brimfile.
 
 
 import numpy as np
+import pytest
 
 
-from brimfile.utils import concatenate_paths, var_to_singleton, np_array_to_smallest_int_type
+from brimfile.utils import (
+    concatenate_paths,
+    var_to_singleton,
+    np_array_to_smallest_int_type,
+    _determine_chunk_size,
+)
 
 
 class TestConcatenatePaths:
@@ -117,3 +123,36 @@ class TestArrayOperations:
         result = np_array_to_smallest_int_type(arr)
         assert result.shape == arr.shape
         np.testing.assert_array_equal(result, arr)
+
+
+class TestDetermineChunkSize:
+    """Tests for chunk-shape helper with preserved trailing dimensions."""
+
+    def test_preserves_last_dimension_by_default(self):
+        """Default behavior keeps the final axis unsplit."""
+        arr = np.zeros((5, 7, 11), dtype=np.float32)
+        chunks = _determine_chunk_size(arr)
+
+        assert isinstance(chunks, tuple)
+        assert len(chunks) == arr.ndim
+        assert chunks[-1] == arr.shape[-1]
+
+    def test_preserves_multiple_trailing_dimensions(self):
+        """n_unsplit_dims keeps the requested trailing dimensions unchanged."""
+        arr = np.zeros((3, 4, 5, 6), dtype=np.float32)
+        chunks = _determine_chunk_size(arr, n_unsplit_dims=2)
+
+        assert chunks[-2:] == arr.shape[-2:]
+
+    def test_returns_full_shape_when_nothing_can_be_split(self):
+        """If all dimensions are unsplit, chunk shape equals array shape."""
+        arr = np.zeros((9, 13), dtype=np.float32)
+        chunks = _determine_chunk_size(arr, n_unsplit_dims=2)
+
+        assert chunks == arr.shape
+
+    def test_rejects_negative_unsplit_dims(self):
+        """Invalid n_unsplit_dims values raise a clear ValueError."""
+        arr = np.zeros((8, 8), dtype=np.float32)
+        with pytest.raises(ValueError, match="n_unsplit_dims"):
+            _determine_chunk_size(arr, n_unsplit_dims=-1)
