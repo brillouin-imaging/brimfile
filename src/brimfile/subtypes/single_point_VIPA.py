@@ -6,7 +6,7 @@ from typing import Any
 from numbers import Number
 from numpy.typing import NDArray
 
-from .constants import SubType, FEATURES
+from .constants import SubType
 from .utils import _check_or_create_subtype, _check_or_create_subtype_feature
 
 from .. import Data, Calibration, AnalysisResults
@@ -282,6 +282,7 @@ async def _get_spectral_line_in_image_from_calibration_async(calibration_group: 
     try:
         linewidth = await calibration_group._file.get_attr(sl_arr, 'Linewidth')
     except Exception as e:
+        # Linewidth metadata is optional; keep default `None` when the attribute is unavailable.
         pass
     return np.array(spectral_line), linewidth
     
@@ -313,8 +314,9 @@ async def _get_spectral_line_in_image_from_analysis_results_async(analysis_resul
         spectral_line = await _async_getitem(sl_arr, ...)
     try:
         linewidth = await analysis_results._file.get_attr(sl_arr, 'Linewidth')
-    except Exception as e:
-        pass
+    except Exception:
+        # Linewidth metadata is optional; fall back to None when unavailable.
+        linewidth = None
     return np.array(spectral_line), linewidth
 
 
@@ -356,6 +358,7 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
             # TODO: decide what to do if there are multiple calibration materials (which one to select?)
             spectral_line_coro = _get_spectral_line_in_image_from_calibration_async(calibration_group, index)
         except Exception as e:
+            # the spectral line information is optional, so we can ignore errors related to its retrieval and just return None for the spectral line and linewidth when it is not available
             pass
     if spectral_line_coro is None:
         async def none_coro():

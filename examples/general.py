@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     f = brim.File.create(filename, store_type=brim.StoreType.AUTO)
 
-    # get the subtype of the file (should be None at this point since we haven't written any data yet)
+    # get the subtype of the file (should be SubType.none at this point since we haven't written any data yet)
     st = f.subtype
 
     PSD, freq_GHz, (dz,dy,dx), shift_GHz, width_GHz = generate_data()
