@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, TypeVar
+if TYPE_CHECKING:
+    from typing import Any
+
 import warnings
 
 from difflib import get_close_matches, SequenceMatcher
 from enum import Enum
 from numbers import Real
-from typing import Any, TypeVar
 from .schema import Type, MetadataEnum, MetadataField, METADATA_SCHEMA
 from .types import MetadataItem, MetadataValue, MetadataItemValidity
 

@@ -1,10 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Any
+    from numbers import Number
+    from numpy.typing import NDArray
+
 import numpy as np
 import warnings
 import asyncio
-
-from typing import Any
-from numbers import Number
-from numpy.typing import NDArray
 
 from .constants import SubType
 from .utils import _check_or_create_subtype, _check_or_create_subtype_feature

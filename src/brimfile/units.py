@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .file_abstraction import FileAbstraction, sync
 
 __docformat__ = "google"

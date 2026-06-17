@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..file_abstraction import sync, FileAbstraction
 from .constants import SubType
 

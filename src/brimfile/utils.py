@@ -1,7 +1,11 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 import re
 import numpy as np
-from typing import Any
-from numpy.typing import NDArray
+if TYPE_CHECKING:
+    from typing import Any
+    from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync
 

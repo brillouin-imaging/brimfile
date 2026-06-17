@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..file_abstraction import FileAbstraction, sync, _gather_sync
 from . import schema, validation
 from .types import MetadataItem

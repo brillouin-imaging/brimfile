@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from math import sin, radians, pi
 # refractive index of water (dimensionless)
 refractive_index_water = 1.333

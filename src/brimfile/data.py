@@ -1,9 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Any
+    from numpy.typing import NDArray
+
 import numpy as np
 import asyncio
 
 import warnings
-from typing import Any
-from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
 from .utils import concatenate_paths, list_objects_matching_pattern_async, get_object_name, set_object_name
