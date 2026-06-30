@@ -101,6 +101,7 @@ class DetectorType(MetadataEnum):
 METADATA_SCHEMA: dict[Type, tuple[MetadataField, ...]] = {
     Type.Experiment: (
         MetadataField('Datetime', str, required=False, description="[ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html) datetime when the experiment was started"),
+        MetadataField('Timestamp', float, required=False, description="When used as array metadata, it indicates the elapsed time in milliseconds from the start of the experiment (defined by the 'Datetime' attribute of the current 'Data_{n}' group, if available; otherwise an arbitrary reference) at which the current spectrum was acquired. When used as an attribute, it indicates the elapsed milliseconds from the general metadata 'Datetime'"),
         MetadataField('Temperature', float, required=False, units_required=True, description="the temperature measured as close as possible to the sample"),
         MetadataField('Temperature_uncertainty', float, required=False, units_required=True, description=""),
         MetadataField('Sample', str, required=False, description="description of the sample being imaged"),

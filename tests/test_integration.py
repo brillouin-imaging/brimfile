@@ -340,8 +340,8 @@ class TestFileLifecycle:
         data = f.get_data()
         md = data.get_metadata()
         Attr = brim.Metadata.Item
-        with pytest.warns(UserWarning, match="Unknown field 'Test'"):
-            md.add(brim.Metadata.Type.Experiment, {'Test': Attr(1, 'unit')}, local=True)
+        with pytest.warns(UserWarning, match="Unknown field 'CustomLifecycleField'"):
+            md.add(brim.Metadata.Type.Experiment, {'CustomLifecycleField': Attr(1, 'unit')}, local=True)
         f.close()
     
     def test_multiple_sequential_operations(self, tmp_path, sample_data):
