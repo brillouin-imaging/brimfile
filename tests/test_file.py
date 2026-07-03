@@ -51,6 +51,61 @@ class TestFileCreation:
         assert f.is_valid() is True
         f.close()
 
+    def test_brim_version_stored_in_internal_file_on_create(self, tmp_path):
+        """Test that create stores brim_version and mirrors it into _file.version."""
+        filename = os.path.join(tmp_path, 'test_version_create.brim.zarr')
+        f = brim.File.create(filename, store_type=brim.StoreType.AUTO, brim_version='1.2.3')
+
+        stored_version = brim.file_abstraction.sync(
+            f._file.get_attr('/', 'brim_version')
+        )
+        assert stored_version == '1.2.3'
+        assert f._file.version == (1, 2, 3)
+
+        f.close()
+
+    def test_brim_version_loaded_in_internal_file_on_open(self, tmp_path):
+        """Test that opening a file loads brim_version into _file.version."""
+        filename = os.path.join(tmp_path, 'test_version_open.brim.zarr')
+
+        created = brim.File.create(
+            filename,
+            store_type=brim.StoreType.AUTO,
+            brim_version='2.0.1',
+        )
+        created.close()
+
+        f = brim.File(filename, mode='r', store_type=brim.StoreType.AUTO)
+        stored_version = brim.file_abstraction.sync(
+            f._file.get_attr('/', 'brim_version')
+        )
+
+        assert stored_version == '2.0.1'
+        assert f._file.version == (2, 0, 1)
+
+        f.close()
+
+    def test_brim_version_short_form_loaded_as_three_items(self, tmp_path):
+        """Test short brim_version strings are normalized to 3-item tuples."""
+        filename = os.path.join(tmp_path, 'test_version_short_open.brim.zarr')
+
+        created = brim.File.create(
+            filename,
+            store_type=brim.StoreType.AUTO,
+            brim_version='0.2',
+        )
+        created.close()
+
+        f = brim.File(filename, mode='r', store_type=brim.StoreType.AUTO)
+        stored_version = brim.file_abstraction.sync(
+            f._file.get_attr('/', 'brim_version')
+        )
+
+        assert stored_version == '0.2'
+        assert f._file.version == (0, 2, 0)
+
+        f.close()
+
 
 class TestFileReadOnly:
     """Tests for read-only file operations."""

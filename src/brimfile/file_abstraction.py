@@ -318,9 +318,10 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                 return len(self.shape)
             
 
-        def __init__(self, zarr_js, filename:str):
+        def __init__(self, zarr_js, filename:str,  *, version: tuple[int, int, int] | None = None):
             self._zarr_js = zarr_js
             self.filename = filename
+            self.version = version
 
         @staticmethod
         def JsProxy_to_py(jsproxy):
@@ -434,7 +435,8 @@ else:
     
 
     class _zarrFile (FileAbstraction):
-        def __init__(self, filename: str, mode: str = 'r', store_type: StoreType = StoreType.AUTO):
+        def __init__(self, filename: str, mode: str = 'r',
+                     store_type: StoreType = StoreType.AUTO, *, version: tuple[int, int, int] | None = None):
             """
             Initialize the Zarr file.
 
@@ -444,6 +446,7 @@ else:
                         'r' means read only (must exist); 'r+' means read/write (must exist);
                         'a' means read/write (create if doesn't exist); 'w' means create (overwrite if exists); 'w-' means create (fail if exists).
                 store_type (str): Type of the store to use. Default is 'AUTO'.
+                version (tuple[int, int, int] | None): Version of the file format to use. Default is None.
             """
             st = StoreType
 
@@ -496,6 +499,7 @@ else:
             self._root = sync(zarr_async.open_group(store=store, mode=mode))
             self._store = store
             self.filename = filename
+            self.version = version
 
         # -------------------- Attribute Management --------------------
 
