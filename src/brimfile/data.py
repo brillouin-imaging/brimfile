@@ -703,7 +703,7 @@ class Data:
                                     spatial_map=self._spatial_map, spatial_map_px_size=self._spatial_map_px_size, sparse=self._sparse)
 
     def _add_data(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, freq_units='GHz',
-                  timestamp: np.ndarray = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+                compression: FileAbstraction.Compression = FileAbstraction.Compression()):
         """
         Add data to the current data group.
 
@@ -728,9 +728,6 @@ class Data:
                 - 'Cartesian_visualisation_pixel' (recommended with Cartesian_visualisation): 
                    Tuple/list of 3 float values (z, y, x) representing pixel size. Unused dimensions can be None.
                 - 'Cartesian_visualisation_pixel_unit' (optional): String for pixel size unit (default: 'um').
-            timestamp (np.ndarray, optional): Timestamps in milliseconds for each spectrum.
-                Must be a 1D array with length equal to PSD.shape[0].
-
 
         Raises:
             ValueError: If any of the data provided is not valid or consistent
@@ -785,10 +782,6 @@ class Data:
         if not has_spatial_mapping and self._sparse:
             raise ValueError("For sparse data, 'scanning' must be provided and must contain at least one of 'Spatial_map' or 'Cartesian_visualisation'")
 
-        if timestamp is not None:
-            if not isinstance(timestamp, np.ndarray) or timestamp.ndim != 1 or len(timestamp) != PSD.shape[0]:
-                raise ValueError("timestamp is not compatible with PSD")
-
         # TODO: add and validate additional datasets (i.e. 'Parameters', 'Calibration_index', etc.)
 
         # Add datasets to the group
@@ -833,10 +826,6 @@ class Data:
                     units.add_to_attribute(self._file, cv, 'element_size', px_unit)
 
         self._spatial_map, self._spatial_map_px_size = sync(self._load_spatial_mapping_async())
-
-        if timestamp is not None:
-            sync(self._file.create_dataset(
-                self._group, 'Timestamp', data=timestamp, compression=compression))
 
     @staticmethod
     def list_data_groups(file: FileAbstraction, retrieve_custom_name=False) -> list:

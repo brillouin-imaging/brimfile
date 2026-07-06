@@ -194,7 +194,7 @@ class File:
         return self._create_data_group_raw(PSD, frequency, scanning = None, sparse = False, px_size_um=px_size_um, 
                                              index=index, name=name, compression=compression)
 
-    def create_data_group_sparse(self, PSD: np.ndarray, frequency: np.ndarray, scanning: dict, *, timestamp: np.ndarray = None,
+    def create_data_group_sparse(self, PSD: np.ndarray, frequency: np.ndarray, scanning: dict, *,
                                 index: int = None, name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new [sparse data entry](https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md) to the file.
@@ -208,7 +208,6 @@ class File:
             frequency (np.ndarray): The frequency data corresponding to the PSD. Must be broadcastable to the PSD array.
             scanning (dict): Dictionary defining the spatial mapping. Must include at least 'Spatial_map' or 'Cartesian_visualisation'.
                 See `brimfile.data.Data._add_data` docstring for detailed structure of the scanning dictionary.
-            timestamp (np.ndarray, optional): Timestamps in milliseconds for the data. Defaults to None.
             index (int, optional): The index for the new data group. If None, the next available index is used. Defaults to None.
             name (str, optional): The name for the new data group. Defaults to None.
             compression (FileAbstraction.Compression, optional): The compression method to use for the data. Defaults to FileAbstraction.Compression.DEFAULT.
@@ -218,9 +217,9 @@ class File:
             IndexError: If the specified index already exists in the dataset.
             ValueError: If any of the data provided is not valid or consistent
         """
-        return self._create_data_group_raw(PSD, frequency, scanning=scanning, timestamp=timestamp, sparse=True, index=index, name=name, compression=compression)   
+        return self._create_data_group_raw(PSD, frequency, scanning=scanning, sparse=True, index=index, name=name, compression=compression)   
     
-    def _create_data_group_raw(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, px_size_um = None, timestamp: np.ndarray = None, sparse: bool = False,
+    def _create_data_group_raw(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, px_size_um = None, sparse: bool = False,
                                 index: int = None, name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new data entry to the file. Check the documentation for `brimfile.data.Data._add_data` for more details on the parameters.
@@ -230,7 +229,6 @@ class File:
             scanning (dict, optional): Spatial mapping metadata. Required for sparse=True, optional for sparse=False.
                 See `brimfile.data.Data._add_data` docstring for detailed structure.
             px_size_um (tuple, optional): A tuple of 3 elements (z, y, x) for pixel size in μm. For non-sparse data only.
-            timestamp (np.ndarray, optional): Timestamps in milliseconds for the data. Defaults to None.
             sparse (bool): Whether the data is sparse. See https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md for details. Defaults to False.
             index (int, optional): The index for the new data group. If None, the next available index is used. Defaults to None.
             name (str, optional): The name for the new data group. Defaults to None.
@@ -260,8 +258,7 @@ class File:
         elif not sparse:
             warnings.warn("Pixel size is not provided for non-sparse data. It is recommended to provide it for proper spatial calibration and visualization.")
         # add the data to the data group
-        d._add_data(PSD, frequency, scanning = scanning,
-                   timestamp=timestamp, compression=compression)
+        d._add_data(PSD, frequency, scanning = scanning, compression=compression)
         return d
 
     def list_data_groups(self, retrieve_custom_name=False) -> list:
