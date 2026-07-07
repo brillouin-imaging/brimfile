@@ -10,7 +10,7 @@ from .constants import brim_obj_names
 from . import units
 from . import subtypes
 
-from .file_abstraction import FileAbstraction, StoreType, sync
+from .file_abstraction import FileAbstraction, StoreType, sync, Version
 from .validation import validate_json, ValidationError, ValidationLevel
 from .validation.json_descriptor import generate_json_descriptor
 
@@ -62,7 +62,7 @@ class File:
                         raise ValueError(f"Validation error at {err.path}: {err.message}")
 
     @staticmethod
-    def _parse_version_tuple3(version) -> tuple[int | str, int | str, int | str]:
+    def _parse_version_tuple3(version: str) -> Version:
         """Normalize a version value into a 3-item tuple (major, minor, patch)."""
         if isinstance(version, str):
             parts = [part for part in version.split('.') if part != '']
@@ -89,11 +89,11 @@ class File:
 
         return (normalized[0], normalized[1], normalized[2])
 
-    def _get_file_version_tuple(self) -> tuple[int | str, int | str, int | str]:
+    def _get_file_version_tuple(self) -> Version:
         """
         Read brim_version from file root attributes and return a 3-item tuple.
         Returns:
-            tuple[int | str, int | str, int | str]: A tuple representing the version of the brim file in the format (major, minor, patch).
+            Version: A tuple representing the version of the brim file in the format (major, minor, patch).
             If the version can't be read from the file, returns None.
         """
         try:
