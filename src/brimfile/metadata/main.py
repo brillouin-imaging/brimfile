@@ -31,17 +31,20 @@ class Metadata:
         self._data_path = data_full_path
 
         #### version aware code ####
-
-        ## _load_local_metadata ##        
+      
         if self._file.version is None:
             # use latest version if the file version is not defined
-            self._load_local_metadata = self._load_local_metadata_v0_2
+            self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2
+            self.add = self.add_v0_2
         else:
             match self._file.version:
                 case (0, 1, _):
-                    self._load_local_metadata = self._load_local_metadata_v0_1
+                    self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_1
+                    self.add = self.add_v0_1
                 case (0, 2, _):
+                    self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2
                     self._load_local_metadata = self._load_local_metadata_v0_2
+                    self.add = self.add_v0_2
 
     @staticmethod
     def _raw_dict_to_MetadataItem_dict(raw_dict: dict) -> dict:
@@ -60,37 +63,79 @@ class Metadata:
             if key not in reserved_attr_names:
                 if not key.endswith('_units'):
                     u = raw_dict.get(f"{key}_units", None)
-                    out_dict[key] = Metadata.Item(raw_dict[key], u)
+                    out_dict[key] = MetadataItem(raw_dict[key], u)
         return out_dict
 
-    async def _load_local_metadata(self, type: Type) -> dict:
+    @staticmethod
+    def _MetadataItem_dict_to_raw_dict(mi_dict: dict) -> dict:
+        """
+        Convert a dictionary of MetadataItem objects to a dictionary of raw metadata values (as to be written to the file).
+        Args:
+            mi_dict (dict): A dictionary containing MetadataItem objects, e.g. {"Temperature": MetadataItem(24, "C")}.
+        Returns:
+            dict: A dictionary containing raw metadata values, e.g. {"Temperature": 24, "Temperature_units": "C"}.        
+        """
+        out_dict = {}
+        for key, value in mi_dict.items():
+            if not isinstance(value, MetadataItem):
+                value = MetadataItem(value, None)
+            out_dict[key] = value.value
+            if value.units is not None:
+                out_dict[f"{key}_units"] = value.units
+        return out_dict
+    
+    async def _load_local_metadata(self) -> dict:
+        """
+        Load the local metadata from the data group.
+        Returns:
+            dict: A dictionary containing the local metadata attributes, as it is stored in the file.
+            Note: it doesn't create an entry for each type in Metadata.Type, but only the types that are present in the file.   
+        """
+        # this is a placeholder method that will be overridden by version-specific implementations. It raises an exception if called directly.
+        raise NotImplementedError(
+            f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
+
+    async def _load_local_metadata_v0_2(self):
+        """
+           See documentation of _load_local_metadata for details.      
+        """
+        out_dict = {}
+        if self._data_path is not None:
+            # TODO: implement reading _arrays
+            try:
+                out_dict = await self._file.get_attr(self._data_path, 'Metadata')
+            except Exception:
+                # if the metadata group does not exist, return the empty dictionary
+                pass
+        return out_dict
+
+    async def _load_local_metadata_of_type(self, type: Type) -> dict:
         """
         Load the metadata of a specific type from the data group.
         This method is version-aware and must be overridden by version-specific implementation.
         Args:
             type (Type): The type of the metadata to load.
         Returns:    
-        dict: A dictionary containing the metadata attributes of the specified type, where each element is of the type Metadata.Item.
+        dict: A dictionary containing the metadata attributes of the specified type, where each element is of the type MetadataItem.
         """
         # this is a placeholder method that will be overridden by version-specific implementations. It raises an exception if called directly.
         raise NotImplementedError(
             f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
 
-    async def _load_local_metadata_v0_2(self, type: Type) -> dict:
+    async def _load_local_metadata_of_type_v0_2(self, type: Type) -> dict:
         """
-        See documentation of _load_local_metadata for details.
+        See documentation of _load_local_metadata_of_type for details.
         """
         out_dict = {}
-        if self._data_path is not None:
-            metadata = await self._file.get_attr(self._data_path, 'Metadata')
-            # read only the attributes of the specific type 
-            metadata = metadata.get(type.value, {})
-            out_dict = self._raw_dict_to_MetadataItem_dict(metadata)
-        # TODO: implement reading _arrays
+        metadata = await self._load_local_metadata_v0_2()
+        # read only the attributes of the specific type 
+        metadata = metadata.get(type.value, {})
+        out_dict = self._raw_dict_to_MetadataItem_dict(metadata)
+        
         return out_dict
-    async def _load_local_metadata_v0_1(self, type: Type) -> dict:
+    async def _load_local_metadata_of_type_v0_1(self, type: Type) -> dict:
         """
-        See documentation of _load_local_metadata for details.
+        See documentation of _load_local_metadata_of_type for details.
         """
         out_dict = {}
         if self._data_path is not None:
@@ -104,7 +149,7 @@ class Metadata:
             for i, attr in enumerate(attrs):
                 val = res[i]
                 u = res[i + len(attrs)]
-                out_dict[attr[len(group):]] = Metadata.Item(val, u)
+                out_dict[attr[len(group):]] = MetadataItem(val, u)
         return out_dict
     
     async def _load_general_metadata(self):
@@ -191,7 +236,7 @@ class Metadata:
         """
 
         # load first the metadata defined locally in the data group (if the Metadata object is linked to a data group)
-        local_metadata_dict = await self._load_local_metadata(type)
+        local_metadata_dict = await self._load_local_metadata_of_type(type)
         if validate:
             # validate the local metadata first.
             for key, value in local_metadata_dict.items():
@@ -215,7 +260,7 @@ class Metadata:
             schema_attrs = [field.name for field in schema.METADATA_SCHEMA[type] if field.required]
             for attr in schema_attrs:
                 if attr not in out_dict:
-                    out_dict[attr] = Metadata.Item(None, None, validity=validation.MetadataItemValidity.MISSING_FIELD)
+                    out_dict[attr] = MetadataItem(None, None, validity=validation.MetadataItemValidity.MISSING_FIELD)
 
         return out_dict
 
@@ -226,9 +271,17 @@ class Metadata:
         Args:
             type (Type): The type of the metadata to add.
             metadata (dict[str, Item]): A dictionary containing the metadata attributes to add.
-                            Each element must be of type Metadata.Item.
+                            Each element must be of type MetadataItem.
                             The keys of the dictionary are the names of the attributes.
             local (bool): If True, the metadata will be added to the data group. Otherwise, it will be added to the general metadata group.
+        """
+        # this is a placeholder method that will be overridden by version-specific implementations. It raises an exception if called directly.
+        raise NotImplementedError(
+            f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
+
+    def add_v0_1(self, type: Type, metadata: dict[str, Item], local: bool = False):
+        """
+        See documentation of add() for details.
         """
         # to save local metadata, the Metadata object must be linked to a data group
         if local and self._data_path is None:
@@ -238,9 +291,9 @@ class Metadata:
             general_metadata = sync(self._load_general_metadata())        
         # iterate over the metadata dictionary and add each attribute
         for key, value in metadata.items():
-            if not isinstance(value, Metadata.Item):
+            if not isinstance(value, MetadataItem):
                 # if no units are provided, we assume None
-                value = Metadata.Item(value, None)
+                value = MetadataItem(value, None)
             key, value = validation.validate_single_field(type, key, value, report_on_invalid=True)
             val = value.value
             if local:
@@ -254,6 +307,36 @@ class Metadata:
                 if value.units is not None:
                     general_metadata[type.value][f"{key}_units"] = value.units
         if not local:
+            self._general_metadata = general_metadata
+            sync(self._file.create_attr(self._path, 'Metadata', general_metadata))
+    
+    def add_v0_2(self, type: Type, metadata: dict[str, Item], local: bool = False):
+        """
+        See documentation of add() for details.
+        """
+        # to save local metadata, the Metadata object must be linked to a data group
+        if local and self._data_path is None:
+            raise ValueError(
+                "The current metadata object is not linked to a data group. Set local to False to add the metadata to the general metadata group.")
+        out_dict = {}     
+        # iterate over the metadata dictionary to validate each attribute
+        for key, value in metadata.items():
+            if not isinstance(value, MetadataItem):
+                # if no units are provided, we assume None
+                value = MetadataItem(value, None)
+            key, value = validation.validate_single_field(type, key, value, report_on_invalid=True)
+            out_dict[key] = value
+        out_dict = self._MetadataItem_dict_to_raw_dict(out_dict)
+
+        # Save to the file
+        if local:
+            local_metadata = sync(self._load_local_metadata())
+            local_metadata = self._MetadataItem_dict_to_raw_dict(local_metadata)
+            local_metadata.update({type.value: out_dict})
+            sync(self._file.create_attr(self._data_path, 'Metadata', local_metadata))
+        else:
+            general_metadata = sync(self._load_general_metadata())   
+            general_metadata.update({type.value: out_dict})
             self._general_metadata = general_metadata
             sync(self._file.create_attr(self._path, 'Metadata', general_metadata))
 
