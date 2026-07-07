@@ -29,8 +29,69 @@ class Metadata:
         self._path = brim_obj_names.Brillouin_base_path
         self._general_metadata = None
         self._data_path = data_full_path
-    
+
+        #### version aware code ####
+
+        ## _load_local_metadata ##        
+        if self._file.version is None:
+            # use latest version if the file version is not defined
+            self._load_local_metadata = self._load_local_metadata_v0_2
+        else:
+            match self._file.version:
+                case (0, 1, _):
+                    self._load_local_metadata = self._load_local_metadata_v0_1
+                case (0, 2, _):
+                    self._load_local_metadata = self._load_local_metadata_v0_2
+
+    @staticmethod
+    def _raw_dict_to_MetadataItem_dict(raw_dict: dict) -> dict:
+        """
+        Convert a dictionary of raw metadata values (as read from the file)
+        to a dictionary of MetadataItem objects.
+        It also ignores the attributes that are defined in `reserved_attr_names`.
+        Args:
+            raw_dict (dict): A dictionary containing raw metadata values.
+                It must be at depth 1, e.g. {"Temperature": 24, "Temperature_units": "C"}.
+        Returns:
+            dict: A dictionary containing MetadataItem objects, e.g. {"Temperature": MetadataItem(24, "C")}.
+        """
+        out_dict = {}
+        for key in raw_dict.keys():
+            if key not in reserved_attr_names:
+                if not key.endswith('_units'):
+                    u = raw_dict.get(f"{key}_units", None)
+                    out_dict[key] = Metadata.Item(raw_dict[key], u)
+        return out_dict
+
     async def _load_local_metadata(self, type: Type) -> dict:
+        """
+        Load the metadata of a specific type from the data group.
+        This method is version-aware and must be overridden by version-specific implementation.
+        Args:
+            type (Type): The type of the metadata to load.
+        Returns:    
+        dict: A dictionary containing the metadata attributes of the specified type, where each element is of the type Metadata.Item.
+        """
+        # this is a placeholder method that will be overridden by version-specific implementations. It raises an exception if called directly.
+        raise NotImplementedError(
+            f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
+
+    async def _load_local_metadata_v0_2(self, type: Type) -> dict:
+        """
+        See documentation of _load_local_metadata for details.
+        """
+        out_dict = {}
+        if self._data_path is not None:
+            metadata = await self._file.get_attr(self._data_path, 'Metadata')
+            # read only the attributes of the specific type 
+            metadata = metadata.get(type.value, {})
+            out_dict = self._raw_dict_to_MetadataItem_dict(metadata)
+        # TODO: implement reading _arrays
+        return out_dict
+    async def _load_local_metadata_v0_1(self, type: Type) -> dict:
+        """
+        See documentation of _load_local_metadata for details.
+        """
         out_dict = {}
         if self._data_path is not None:
             attrs = await self._file.list_attributes(self._data_path)
@@ -45,9 +106,18 @@ class Metadata:
                 u = res[i + len(attrs)]
                 out_dict[attr[len(group):]] = Metadata.Item(val, u)
         return out_dict
+    
     async def _load_general_metadata(self):
+        """
+        Load the general metadata from the file's root attributes.
+        If the general metadata has already been loaded, it returns a copy of the cached metadata.
+        Returns:
+            dict: A dictionary containing the general metadata attributes, as it is stored in the file.
+            Note: The returned dictionary is a copy of the cached metadata to prevent accidental modifications to the data in the class.        
+        """
+        # TODO: implement handling of _arrays
         if self._general_metadata is not None:
-            return self._general_metadata   
+            return self._general_metadata.copy()   
         metadata_dict = {}
         try:
             metadata_dict = await self._file.get_attr(self._path, 'Metadata')
@@ -57,7 +127,9 @@ class Metadata:
                 metadata_dict[type.value] = {}
             await self._file.create_attr(self._path, 'Metadata', metadata_dict)
         self._general_metadata = metadata_dict
-        return metadata_dict
+        return metadata_dict.copy()
+    
+
     async def _get_single_item(self, type: Type, name: str) -> Item:
         """
         Retrieve a single metadata.
@@ -118,26 +190,25 @@ class Metadata:
             dict: A dictionary containing all metadata attributes, where each element is of the type Item.
         """
 
-        # load first the metadata defined locally in the data group (if the Metadata object is linked to a data group), as they take precedence over the general metadata
-        out_dict = await self._load_local_metadata(type)
-        local_attrs = tuple(out_dict.keys())
+        # load first the metadata defined locally in the data group (if the Metadata object is linked to a data group)
+        local_metadata_dict = await self._load_local_metadata(type)
         if validate:
             # validate the local metadata first.
-            for key, value in out_dict.items():
-                _, out_dict[key] = validation.validate_single_field(type, key, value)
+            for key, value in local_metadata_dict.items():
+                _, local_metadata_dict[key] = validation.validate_single_field(type, key, value)
 
         # then load the general metadata from the metadata group
         global_metadata_dict = await self._load_general_metadata()
         global_metadata_dict = global_metadata_dict.get(type.value)
-        # remove the attributes that are already loaded from the data group or that are units attributes
-        attrs = [attr for attr in global_metadata_dict.keys() if not (attr in local_attrs or attr.endswith('_units') or attr in reserved_attr_names)]
-        for attr in attrs:
-            val = global_metadata_dict.get(attr)
-            u = global_metadata_dict.get(f"{attr}_units", None)
-            res = Metadata.Item(val, u)
-            if validate:
-                _, res = validation.validate_single_field(type, attr, res)
-            out_dict[attr] = res
+        global_metadata_dict = self._raw_dict_to_MetadataItem_dict(global_metadata_dict)
+        if validate:
+            # validate the general metadata.
+            for key, value in global_metadata_dict.items():
+                _, global_metadata_dict[key] = validation.validate_single_field(type, key, value)
+        # make sure that we don't overwrite the global metadata dict in the class attribute.
+        out_dict = global_metadata_dict.copy()
+        # merge the local metadata dict into the global metadata dict. Local metadata takes precedence over global metadata.
+        out_dict.update(local_metadata_dict)
 
         if validate and include_missing:
             # include missing required attributes with value None
