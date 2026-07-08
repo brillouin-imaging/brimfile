@@ -34,6 +34,7 @@ class Metadata:
       
         if self._file.version is None:
             # use latest version if the file version is not defined
+            self._load_local_metadata = self._load_local_metadata_v0_2
             self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2
             self.add = self.add_v0_2
         else:
