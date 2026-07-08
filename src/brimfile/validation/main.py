@@ -18,6 +18,8 @@ from ..constants import brim_obj_names
 from ..utils import concatenate_paths
 from .utils import get_node_type, get_attributes, get_array_shape_and_dtype, \
                     is_numeric_dtype, generate_attr_path, _NodeType, broadcast_shapes
+from .versions import get_supported_versions, get_version_rules, UnsupportedBrimVersionError
+from .versions.base import VersionRules
 
 class ValidationLevel(Enum):
     """Severity for validation issues."""
@@ -371,11 +373,17 @@ def _validate_singlepoint_vipa_data_group(
     return errs
 
 
-def validate_metadata(metadata_type: MetadataType, metadata_dict: dict[str]) -> list[ValidationError]:
+def validate_metadata(
+    metadata_type: MetadataType,
+    metadata_dict: dict[str],
+    *,
+    path_prefix: str = 'Brillouin_data',
+    require_all_required_fields: bool = True,
+) -> list[ValidationError]:
     errs: list[ValidationError] = []
 
     def generate_metadata_path(field_name: str) -> str:
-        path = generate_attr_path('Brillouin_data', 'Metadata')
+        path = generate_attr_path(path_prefix, 'Metadata')
         return f"{path}.{metadata_type.value}.{field_name}"
     
     def map_MetadataItemValidity_to_ValidationError(validity: MetadataItemValidity, *,
@@ -429,18 +437,226 @@ def validate_metadata(metadata_type: MetadataType, metadata_dict: dict[str]) -> 
         if err is not None:
             errs.append(err)
     # check for missing required fields
-    for field in METADATA_SCHEMA[metadata_type]:
-        if not field.required:
-            # only check for required fields, optional fields can be missing without causing an error
+    if require_all_required_fields:
+        for field in METADATA_SCHEMA[metadata_type]:
+            if not field.required:
+                # only check for required fields, optional fields can be missing without causing an error
+                continue
+            field_name = field.name
+            if field_name not in metadata_dict:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.MISSING_METADATA,
+                    path=generate_metadata_path(field_name),
+                    message=f"The required field '{field_name}' is missing for metadata type '{metadata_type.value}'."
+                ))
+    return errs
+
+
+def _validate_nested_data_group_metadata_override(
+    node: dict,
+    path: str,
+    *,
+    sparse: bool,
+    PSD_shape: tuple[int, ...] | None,
+) -> list[ValidationError]:
+    errs: list[ValidationError] = []
+    attrs = get_attributes(node)
+    if attrs is None:
+        return errs
+
+    metadata_attr_path = generate_attr_path(path, 'Metadata')
+    metadata_attr = attrs.get('Metadata', None)
+    if metadata_attr is None:
+        return errs
+
+    if not isinstance(metadata_attr, dict):
+        errs.append(ValidationError(
+            level=ValidationLevel.ERROR,
+            type=ValidationType.INVALID_TYPE,
+            path=metadata_attr_path,
+            message=f"The local 'Metadata' attribute in '{path}' must be a dictionary, found {type(metadata_attr).__name__}."
+        ))
+        return errs
+
+    arrays_by_type: dict[MetadataType, set[str]] = {}
+    known_type_names = {md_type.value for md_type in MetadataType}
+    for metadata_type_name, metadata_values in metadata_attr.items():
+        type_attr_path = f"{metadata_attr_path}.{metadata_type_name}"
+        if metadata_type_name not in known_type_names:
+            errs.append(ValidationError(
+                level=ValidationLevel.WARNING,
+                type=ValidationType.INVALID_NAME,
+                path=type_attr_path,
+                message=f"Metadata type '{metadata_type_name}' is not recognized by the schema."
+            ))
             continue
-        field_name = field.name
-        if field_name not in metadata_dict:
+
+        metadata_type = MetadataType(metadata_type_name)
+        if not isinstance(metadata_values, dict):
             errs.append(ValidationError(
                 level=ValidationLevel.ERROR,
-                type=ValidationType.MISSING_METADATA,
-                path=generate_metadata_path(field_name),
-                message=f"The required field '{field_name}' is missing for metadata type '{metadata_type.value}'."
+                type=ValidationType.INVALID_TYPE,
+                path=type_attr_path,
+                message=f"The '{metadata_type_name}' entry in local metadata must be a dictionary, found {type(metadata_values).__name__}."
             ))
+            continue
+
+        arrays_hint = metadata_values.get('_arrays', None)
+        if arrays_hint is not None:
+            if not isinstance(arrays_hint, list) or not all(isinstance(field_name, str) for field_name in arrays_hint):
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_TYPE,
+                    path=f"{type_attr_path}._arrays",
+                    message="The '_arrays' hint must be a list of metadata field names (strings)."
+                ))
+            else:
+                arrays_by_type[metadata_type] = set(arrays_hint)
+
+        metadata_values_without_arrays = {
+            key: value
+            for key, value in metadata_values.items()
+            if key != '_arrays'
+        }
+        errs.extend(validate_metadata(
+            metadata_type,
+            metadata_values_without_arrays,
+            path_prefix=path,
+            require_all_required_fields=False,
+        ))
+
+    if not arrays_by_type:
+        return errs
+
+    data_metadata_group_path = concatenate_paths(path, 'Metadata')
+    data_metadata_group = node.get('Metadata', None)
+    if data_metadata_group is None:
+        errs.append(ValidationError(
+            level=ValidationLevel.ERROR,
+            type=ValidationType.MISSING_GROUP,
+            path=data_metadata_group_path,
+            message=(
+                f"The '{data_metadata_group_path}' group is required when '_arrays' is declared "
+                "in the local metadata override attribute."
+            )
+        ))
+        return errs
+
+    if get_node_type(data_metadata_group) != _NodeType.GROUP:
+        errs.append(ValidationError(
+            level=ValidationLevel.ERROR,
+            type=ValidationType.INVALID_TYPE,
+            path=data_metadata_group_path,
+            message=f"The '{data_metadata_group_path}' node must be a group."
+        ))
+        return errs
+
+    expected_shape: tuple[int, ...] | None = None
+    if PSD_shape is not None:
+        expected_shape = (PSD_shape[0],) if sparse else PSD_shape[:3]
+
+    for metadata_type, array_fields in arrays_by_type.items():
+        type_group_path = concatenate_paths(data_metadata_group_path, metadata_type.value)
+        type_group = data_metadata_group.get(metadata_type.value, None)
+        if type_group is None:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.MISSING_GROUP,
+                path=type_group_path,
+                message=f"Missing metadata arrays group '{type_group_path}' declared via '_arrays'."
+            ))
+            continue
+        if get_node_type(type_group) != _NodeType.GROUP:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=type_group_path,
+                message=f"The node '{type_group_path}' must be a group containing metadata arrays."
+            ))
+            continue
+
+        for field_name in sorted(array_fields):
+            field_path = concatenate_paths(type_group_path, field_name)
+            if field_name not in type_group:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.MISSING_ARRAY,
+                    path=field_path,
+                    message=f"Missing metadata array '{field_path}' declared in '_arrays'."
+                ))
+                continue
+            if get_node_type(type_group[field_name]) != _NodeType.ARRAY:
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_TYPE,
+                    path=field_path,
+                    message=f"The metadata node '{field_path}' must be an array."
+                ))
+                continue
+
+            field_shape, _ = get_array_shape_and_dtype(type_group[field_name])
+            if field_shape is None:
+                errs.append(ValidationError(
+                    level=ValidationLevel.CRITICAL,
+                    type=ValidationType.MISSING_ATTRIBUTE,
+                    path=field_path,
+                    message=f"The metadata array '{field_path}' must define 'shape'."
+                ))
+                continue
+            if expected_shape is not None and tuple(field_shape) != tuple(expected_shape):
+                errs.append(ValidationError(
+                    level=ValidationLevel.ERROR,
+                    type=ValidationType.INVALID_SHAPE,
+                    path=field_path,
+                    message=(
+                        f"The metadata array '{field_path}' must match spatial PSD dimensions {expected_shape}, "
+                        f"found shape {field_shape}."
+                    )
+                ))
+
+    return errs
+
+
+def _validate_data_group_metadata_overrides(
+    node: dict,
+    path: str,
+    *,
+    sparse: bool,
+    PSD_shape: tuple[int, ...] | None,
+    version_rules: VersionRules,
+) -> list[ValidationError]:
+    errs: list[ValidationError] = []
+    attrs = get_attributes(node)
+    if attrs is None:
+        return errs
+
+    metadata_type_names = [metadata_type.value for metadata_type in MetadataType]
+
+    if version_rules.uses_nested_data_group_metadata_attribute():
+        flattened_fields = []
+        for attr_name in attrs:
+            if any(attr_name.startswith(f"{md_type_name}.") for md_type_name in metadata_type_names):
+                flattened_fields.append(attr_name)
+        for attr_name in sorted(flattened_fields):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_VALUE,
+                path=generate_attr_path(path, attr_name),
+                message=(
+                    f"Flattened metadata override '{attr_name}' is not valid for brim_version "
+                    f"'{version_rules.version}'. Use the nested 'Metadata' attribute instead."
+                )
+            ))
+
+        if version_rules.supports_data_group_metadata_arrays_group():
+            errs.extend(_validate_nested_data_group_metadata_override(
+                node,
+                path,
+                sparse=sparse,
+                PSD_shape=PSD_shape,
+            ))
+
     return errs
 
 def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=None) -> list[ValidationError]:
@@ -515,10 +731,13 @@ def validate_data_group(
     node: dict,
     path: str,
     *,
+    version_rules: VersionRules | None = None,
     subtype: str | None = None,
     subtype_features: set[str] | None = None,
 ) -> list[ValidationError]:
     errs: list[ValidationError] = []
+    if version_rules is None:
+        version_rules = get_version_rules('0.1')
     node_type = get_node_type(node)
     if node_type != _NodeType.GROUP:
         errs.append(ValidationError(
@@ -816,6 +1035,14 @@ def validate_data_group(
                     path=concatenate_paths(path, 'Parameters'),
                     message=f"The 'Parameters' array in the data group '{path}' must have {num_pars} elements in the last dimension, found {Parameters_shape[-1]} instead."
                 ))
+
+    errs.extend(_validate_data_group_metadata_overrides(
+        node,
+        path,
+        sparse=sparse,
+        PSD_shape=PSD_shape,
+        version_rules=version_rules,
+    ))
     
     # list the analysis groups in the current data group and validate them
     analysis_groups: list[tuple[str, int]] = []
@@ -865,13 +1092,19 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
             path=generate_attr_path(path, attr_name),
             message=f"The root group must have a '{attr_name}' attribute."
         ))
-    elif version != '0.1':
-        errs.append(ValidationError(
-            level=ValidationLevel.ERROR,
-            type=ValidationType.INVALID_VALUE,
-            path=generate_attr_path(path, attr_name),
-            message=f"The only current supported version is '0.1', found {version}."
-        ))
+    else:
+        try:
+            get_version_rules(version)
+        except UnsupportedBrimVersionError:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_VALUE,
+                path=generate_attr_path(path, attr_name),
+                message=(
+                    f"Unsupported brim_version '{version}'. Supported versions are "
+                    f"{list(get_supported_versions())}."
+                )
+            ))
     attr_name = 'Subtype'
     subtype = attrs.get(attr_name, None)
     if subtype is not None:
@@ -947,6 +1180,7 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
 def validate_Brillouin_data_group(
     node: dict,
     *,
+    version_rules: VersionRules,
     subtype: str | None = None,
     subtype_features: set[str] | None = None,
 ) -> list[ValidationError]:
@@ -1027,6 +1261,7 @@ def validate_Brillouin_data_group(
             errs.extend(validate_data_group(
                 node[dg_name],
                 path=concatenate_paths(path, dg_name),
+                version_rules=version_rules,
                 subtype=subtype,
                 subtype_features=subtype_features,
             ))
@@ -1066,6 +1301,7 @@ def validate_json(json_descriptor: str) -> list[ValidationError]:
         ))
     subtype: str | None = None
     subtype_features: set[str] | None = None
+    version_rules: VersionRules | None = None
     attrs = get_attributes(descriptor_dict)
     if attrs is None:
         errs.append(ValidationError(
@@ -1076,6 +1312,12 @@ def validate_json(json_descriptor: str) -> list[ValidationError]:
         ))
     else:
         errs.extend(validate_root_attrs(attrs))
+        version = attrs.get('brim_version', None)
+        if isinstance(version, str):
+            try:
+                version_rules = get_version_rules(version)
+            except UnsupportedBrimVersionError:
+                version_rules = None
         raw_subtype = attrs.get('Subtype', None)
         if isinstance(raw_subtype, str):
             subtype = raw_subtype
@@ -1086,11 +1328,22 @@ def validate_json(json_descriptor: str) -> list[ValidationError]:
     # check the Brillouin_data group
     path = 'Brillouin_data'
     brillouin_data_group = descriptor_dict.get('Brillouin_data', None)
-    if brillouin_data_group is not None:
+    if brillouin_data_group is not None and version_rules is not None:
         errs.extend(validate_Brillouin_data_group(
             brillouin_data_group,
+            version_rules=version_rules,
             subtype=subtype,
             subtype_features=subtype_features,
+        ))
+    elif brillouin_data_group is not None and version_rules is None:
+        errs.append(ValidationError(
+            level=ValidationLevel.ERROR,
+            type=ValidationType.INVALID_VALUE,
+            path=generate_attr_path('', 'brim_version'),
+            message=(
+                f"Cannot validate '{path}' because brim_version is missing or unsupported. "
+                f"Supported versions are {list(get_supported_versions())}."
+            )
         ))
     else:
         errs.append(ValidationError(
