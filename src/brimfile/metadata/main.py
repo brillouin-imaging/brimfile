@@ -333,11 +333,14 @@ class Metadata:
         if local:
             local_metadata = sync(self._load_local_metadata())
             local_metadata = self._MetadataItem_dict_to_raw_dict(local_metadata)
-            local_metadata.update({type.value: out_dict})
+            local_metadata.setdefault(type.value, {})
+            local_metadata[type.value].update(out_dict)
             sync(self._file.create_attr(self._data_path, 'Metadata', local_metadata))
         else:
             general_metadata = sync(self._load_general_metadata())   
-            general_metadata.update({type.value: out_dict})
+            # we don't need to call `general_metadata.setdefault(type.value, {})``
+            # since the general metadata is always initialized with all types in the file, even if they are empty.
+            general_metadata[type.value].update(out_dict)
             self._general_metadata = general_metadata
             sync(self._file.create_attr(self._path, 'Metadata', general_metadata))
 

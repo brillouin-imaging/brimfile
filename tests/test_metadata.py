@@ -4,10 +4,15 @@ Unit tests for the Metadata class in brimfile.
 
 import pytest
 from datetime import datetime
+import zarr
 
 import brimfile as brim
 from brimfile.metadata.types import MetadataItemValidity
 from brimfile.metadata.schema import METADATA_SCHEMA
+from brimfile.validation.versions import get_supported_versions
+
+
+SUPPORTED_VERSIONS = get_supported_versions()
 
 
 def _sample_value_for_field(field, *, seed: int):
@@ -291,6 +296,110 @@ class TestMetadataUpdate:
         temp = md['Experiment.Temperature']
         assert temp.value == 25.0
         f.close()
+
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    @pytest.mark.parametrize('sparse', [False, True])
+    def test_add_local_metadata_does_not_overwrite_existing_fields(
+        self,
+        tmp_path,
+        sample_data,
+        sample_data_sparse,
+        brim_version,
+        sparse,
+    ):
+        """Spec: metadata entries at the same scope/type should accumulate, not replace prior fields."""
+        filename = tmp_path / f'metadata_local_merge_v{brim_version}_{"sparse" if sparse else "dense"}.brim.zarr'
+
+        f = brim.File.create(str(filename), store_type=brim.StoreType.AUTO, brim_version=brim_version)
+        if sparse:
+            data = f.create_data_group_sparse(
+                sample_data_sparse['PSD'],
+                sample_data_sparse['frequency'],
+                scanning=sample_data_sparse['scanning'],
+                name='d0',
+            )
+        else:
+            data = f.create_data_group(
+                sample_data['PSD'],
+                sample_data['frequency'],
+                sample_data['pixel_size'],
+                name='d0',
+            )
+
+        md = data.get_metadata()
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Temperature': brim.Metadata.Item(21.0, 'C')},
+            local=True,
+        )
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Datetime': '2026-01-01T10:00:00'},
+            local=True,
+        )
+
+        exp_md = md.to_dict(brim.Metadata.Type.Experiment)
+        assert exp_md['Temperature'].value == 21.0
+        assert exp_md['Temperature'].units == 'C'
+        assert exp_md['Datetime'].value == '2026-01-01T10:00:00'
+        f.close()
+
+        # Independent on-disk check: adding a second metadata key must not drop existing keys.
+        root = zarr.open(str(filename), mode='r')
+        data_0 = root['Brillouin_data']['Data_0']
+
+        if brim_version.startswith('0.1'):
+            assert data_0.attrs['Experiment.Temperature'] == 21.0
+            assert data_0.attrs['Experiment.Temperature_units'] == 'C'
+            assert data_0.attrs['Experiment.Datetime'] == '2026-01-01T10:00:00'
+        else:
+            exp_dict = data_0.attrs['Metadata']['Experiment']
+            assert exp_dict['Temperature'] == 21.0
+            assert exp_dict['Temperature_units'] == 'C'
+            assert exp_dict['Datetime'] == '2026-01-01T10:00:00'
+
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    def test_add_global_metadata_does_not_overwrite_existing_fields(
+        self,
+        tmp_path,
+        sample_data,
+        brim_version,
+    ):
+        """Spec: /Brillouin_data Metadata should preserve existing fields when adding new ones."""
+        filename = tmp_path / f'metadata_global_merge_v{brim_version}.brim.zarr'
+
+        f = brim.File.create(str(filename), store_type=brim.StoreType.AUTO, brim_version=brim_version)
+        data = f.create_data_group(
+            sample_data['PSD'],
+            sample_data['frequency'],
+            sample_data['pixel_size'],
+            name='d0',
+        )
+
+        md = data.get_metadata()
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Temperature': brim.Metadata.Item(24.0, 'C')},
+            local=False,
+        )
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Datetime': '2026-01-02T11:30:00'},
+            local=False,
+        )
+
+        exp_md = md.to_dict(brim.Metadata.Type.Experiment)
+        assert exp_md['Temperature'].value == 24.0
+        assert exp_md['Temperature'].units == 'C'
+        assert exp_md['Datetime'].value == '2026-01-02T11:30:00'
+        f.close()
+
+        # Independent on-disk check: global metadata key additions are merged.
+        root = zarr.open(str(filename), mode='r')
+        exp_dict = root['Brillouin_data'].attrs['Metadata']['Experiment']
+        assert exp_dict['Temperature'] == 24.0
+        assert exp_dict['Temperature_units'] == 'C'
+        assert exp_dict['Datetime'] == '2026-01-02T11:30:00'
 
 
 class TestLocalVsGlobalMetadata:
