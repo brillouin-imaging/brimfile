@@ -7,6 +7,48 @@ from datetime import datetime
 
 import brimfile as brim
 from brimfile.metadata.types import MetadataItemValidity
+from brimfile.metadata.schema import METADATA_SCHEMA
+
+
+def _sample_value_for_field(field, *, seed: int):
+    """Create a valid value/units pair for a metadata schema field."""
+    if field.enum_type is not None:
+        enum_values = list(field.enum_type)
+        value = enum_values[seed % len(enum_values)].value
+        units = None
+    elif field.python_type is float:
+        value = float(seed) + 0.5
+        units = 'arb' if field.units_required else None
+    elif field.python_type is str:
+        value = f'value_{seed}'
+        units = 'arb' if field.units_required else None
+    else:
+        # The current schema only uses list[float] beyond primitive str/float.
+        value = [float(seed), float(seed) + 1.0]
+        units = 'arb' if field.units_required else None
+    return value, units
+
+
+_REPRESENTATIVE_FIELD_BY_TYPE = {
+    brim.Metadata.Type.Experiment: 'Temperature',
+    brim.Metadata.Type.Optics: 'Wavelength',
+    brim.Metadata.Type.Brillouin: 'Scattering_angle',
+    brim.Metadata.Type.Acquisition: 'Acquisition_time',
+    brim.Metadata.Type.Spectrometer: 'Resolution',
+}
+
+
+def _field_for_type(md_type, field_name):
+    for field in METADATA_SCHEMA[md_type]:
+        if field.name == field_name:
+            return field
+    raise KeyError(f"Field '{field_name}' not found for metadata type '{md_type.value}'.")
+
+
+SCHEMA_FIELDS = [
+    (md_type, _field_for_type(md_type, field_name))
+    for md_type, field_name in _REPRESENTATIVE_FIELD_BY_TYPE.items()
+]
 
 
 class TestMetadataItem:
@@ -338,4 +380,68 @@ class TestMetadataValidationIntegration:
         temp = md['Experiment.Temperature']
         assert temp.value == 23.0
         assert temp.units == 'C'
+        f.close()
+
+
+class TestMetadataInheritanceMatrix:
+    """Coverage for global/local/both metadata visibility and precedence."""
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', SCHEMA_FIELDS)
+    @pytest.mark.parametrize('scope', ['global_only', 'local_only', 'both'])
+    def test_metadata_scope_precedence_in_to_dict(self, request, file_fixture_name, md_type, field, scope):
+        """Spec: Data-level metadata overrides Brillouin_data metadata of the same field."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        global_value, global_units = _sample_value_for_field(field, seed=11)
+        local_value, local_units = _sample_value_for_field(field, seed=77)
+
+        if scope in ('global_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(global_value, global_units)}, local=False)
+        if scope in ('local_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(local_value, local_units)}, local=True)
+
+        out = md.to_dict(md_type)
+        assert field.name in out
+
+        if scope == 'global_only':
+            assert out[field.name].value == global_value
+            assert out[field.name].units == global_units
+        else:
+            # local_only + both should both resolve to local
+            assert out[field.name].value == local_value
+            assert out[field.name].units == local_units
+
+        f.close()
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', SCHEMA_FIELDS)
+    @pytest.mark.parametrize('scope', ['global_only', 'local_only', 'both'])
+    def test_metadata_scope_precedence_in_getitem(self, request, file_fixture_name, md_type, field, scope):
+        """Spec: single-item metadata reads follow the same precedence as dict reads."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        global_value, global_units = _sample_value_for_field(field, seed=3)
+        local_value, local_units = _sample_value_for_field(field, seed=9)
+
+        if scope in ('global_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(global_value, global_units)}, local=False)
+        if scope in ('local_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(local_value, local_units)}, local=True)
+
+        item = md[f'{md_type.value}.{field.name}']
+
+        if scope == 'global_only':
+            assert item.value == global_value
+            assert item.units == global_units
+        else:
+            assert item.value == local_value
+            assert item.units == local_units
+
         f.close()

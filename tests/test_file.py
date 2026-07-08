@@ -4,9 +4,14 @@ Unit tests for the File class in brimfile.
 
 import pytest
 import os
+import zarr
 
 
 import brimfile as brim
+from brimfile.validation.versions import get_supported_versions
+
+
+SUPPORTED_VERSIONS = get_supported_versions()
 class TestFileCreation:
     """Tests for File creation and initialization."""
     
@@ -51,60 +56,35 @@ class TestFileCreation:
         assert f.is_valid() is True
         f.close()
 
-    def test_brim_version_stored_in_internal_file_on_create(self, tmp_path):
-        """Test that create stores brim_version and mirrors it into _file.version."""
-        filename = os.path.join(tmp_path, 'test_version_create.brim.zarr')
-        f = brim.File.create(filename, store_type=brim.StoreType.AUTO, brim_version='1.2.3')
-
-        stored_version = brim.file_abstraction.sync(
-            f._file.get_attr('/', 'brim_version')
-        )
-        assert stored_version == '1.2.3'
-        assert f._file.version == (1, 2, 3)
-
-        f.close()
-
-    def test_brim_version_loaded_in_internal_file_on_open(self, tmp_path):
-        """Test that opening a file loads brim_version into _file.version."""
-        filename = os.path.join(tmp_path, 'test_version_open.brim.zarr')
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    def test_supported_brim_versions_round_trip_on_create_and_open(self, tmp_path, brim_version):
+        """Spec: root brim_version must be persisted and readable for each supported version."""
+        filename = os.path.join(tmp_path, f'test_version_{brim_version}.brim.zarr')
 
         created = brim.File.create(
             filename,
             store_type=brim.StoreType.AUTO,
-            brim_version='2.0.1',
+            brim_version=brim_version,
         )
+
+        stored_version_create = brim.file_abstraction.sync(
+            created._file.get_attr('/', 'brim_version')
+        )
+        assert stored_version_create == brim_version
         created.close()
 
-        f = brim.File(filename, mode='r', store_type=brim.StoreType.AUTO)
-        stored_version = brim.file_abstraction.sync(
-            f._file.get_attr('/', 'brim_version')
+        # Independent on-disk verification via raw zarr inspection.
+        root = zarr.open(filename, mode='r')
+        assert root.attrs['brim_version'] == brim_version
+        assert 'Brillouin_data' in root
+
+        opened = brim.File(filename, mode='r', store_type=brim.StoreType.AUTO)
+        stored_version_open = brim.file_abstraction.sync(
+            opened._file.get_attr('/', 'brim_version')
         )
-
-        assert stored_version == '2.0.1'
-        assert f._file.version == (2, 0, 1)
-
-        f.close()
-
-    def test_brim_version_short_form_loaded_as_three_items(self, tmp_path):
-        """Test short brim_version strings are normalized to 3-item tuples."""
-        filename = os.path.join(tmp_path, 'test_version_short_open.brim.zarr')
-
-        created = brim.File.create(
-            filename,
-            store_type=brim.StoreType.AUTO,
-            brim_version='0.2',
-        )
-        created.close()
-
-        f = brim.File(filename, mode='r', store_type=brim.StoreType.AUTO)
-        stored_version = brim.file_abstraction.sync(
-            f._file.get_attr('/', 'brim_version')
-        )
-
-        assert stored_version == '0.2'
-        assert f._file.version == (0, 2, 0)
-
-        f.close()
+        assert stored_version_open == brim_version
+        assert opened._file.version == brim.File._parse_version_tuple3(brim_version)
+        opened.close()
 
 
 class TestFileReadOnly:
