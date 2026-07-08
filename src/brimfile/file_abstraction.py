@@ -6,6 +6,9 @@ from enum import Enum
 import numpy as np  
 import asyncio
 
+from typing import TypeAlias
+Version: TypeAlias = tuple[int, int, int] | None
+
 __docformat__ = "google"
 
 class FileAbstraction(ABC):
@@ -19,6 +22,9 @@ class FileAbstraction(ABC):
     All the methods which require a path to an exixsting object in the file, will accept
     either the object itself (as defined by the specific implementation) or its path as a string.
     """
+
+    # -------------------- Public attributes --------------------
+    version: Version = None
 
     # -------------------- Attribute Management --------------------
 
@@ -318,9 +324,10 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                 return len(self.shape)
             
 
-        def __init__(self, zarr_js, filename:str):
+        def __init__(self, zarr_js, filename:str,  *, version: Version = None):
             self._zarr_js = zarr_js
             self.filename = filename
+            self.version = version
 
         @staticmethod
         def JsProxy_to_py(jsproxy):
@@ -434,7 +441,8 @@ else:
     
 
     class _zarrFile (FileAbstraction):
-        def __init__(self, filename: str, mode: str = 'r', store_type: StoreType = StoreType.AUTO):
+        def __init__(self, filename: str, mode: str = 'r',
+                     store_type: StoreType = StoreType.AUTO, *, version: Version = None):
             """
             Initialize the Zarr file.
 
@@ -444,6 +452,7 @@ else:
                         'r' means read only (must exist); 'r+' means read/write (must exist);
                         'a' means read/write (create if doesn't exist); 'w' means create (overwrite if exists); 'w-' means create (fail if exists).
                 store_type (str): Type of the store to use. Default is 'AUTO'.
+                version (Version): Version of the file format to use. Default is None.
             """
             st = StoreType
 
@@ -496,6 +505,7 @@ else:
             self._root = sync(zarr_async.open_group(store=store, mode=mode))
             self._store = store
             self.filename = filename
+            self.version = version
 
         # -------------------- Attribute Management --------------------
 

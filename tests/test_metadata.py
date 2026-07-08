@@ -4,9 +4,56 @@ Unit tests for the Metadata class in brimfile.
 
 import pytest
 from datetime import datetime
+import zarr
 
 import brimfile as brim
 from brimfile.metadata.types import MetadataItemValidity
+from brimfile.metadata.schema import METADATA_SCHEMA
+from brimfile.validation.versions import get_supported_versions
+
+
+SUPPORTED_VERSIONS = get_supported_versions()
+
+
+def _sample_value_for_field(field, *, seed: int):
+    """Create a valid value/units pair for a metadata schema field."""
+    if field.enum_type is not None:
+        enum_values = list(field.enum_type)
+        value = enum_values[seed % len(enum_values)].value
+        units = None
+    elif field.python_type is float:
+        value = float(seed) + 0.5
+        units = 'arb' if field.units_required else None
+    elif field.python_type is str:
+        value = f'value_{seed}'
+        units = 'arb' if field.units_required else None
+    else:
+        # The current schema only uses list[float] beyond primitive str/float.
+        value = [float(seed), float(seed) + 1.0]
+        units = 'arb' if field.units_required else None
+    return value, units
+
+
+_REPRESENTATIVE_FIELD_BY_TYPE = {
+    brim.Metadata.Type.Experiment: 'Temperature',
+    brim.Metadata.Type.Optics: 'Wavelength',
+    brim.Metadata.Type.Brillouin: 'Scattering_angle',
+    brim.Metadata.Type.Acquisition: 'Acquisition_time',
+    brim.Metadata.Type.Spectrometer: 'Resolution',
+}
+
+
+def _field_for_type(md_type, field_name):
+    for field in METADATA_SCHEMA[md_type]:
+        if field.name == field_name:
+            return field
+    raise KeyError(f"Field '{field_name}' not found for metadata type '{md_type.value}'.")
+
+
+SCHEMA_FIELDS = [
+    (md_type, _field_for_type(md_type, field_name))
+    for md_type, field_name in _REPRESENTATIVE_FIELD_BY_TYPE.items()
+]
 
 
 class TestMetadataItem:
@@ -250,6 +297,110 @@ class TestMetadataUpdate:
         assert temp.value == 25.0
         f.close()
 
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    @pytest.mark.parametrize('sparse', [False, True])
+    def test_add_local_metadata_does_not_overwrite_existing_fields(
+        self,
+        tmp_path,
+        sample_data,
+        sample_data_sparse,
+        brim_version,
+        sparse,
+    ):
+        """Spec: metadata entries at the same scope/type should accumulate, not replace prior fields."""
+        filename = tmp_path / f'metadata_local_merge_v{brim_version}_{"sparse" if sparse else "dense"}.brim.zarr'
+
+        f = brim.File.create(str(filename), store_type=brim.StoreType.AUTO, brim_version=brim_version)
+        if sparse:
+            data = f.create_data_group_sparse(
+                sample_data_sparse['PSD'],
+                sample_data_sparse['frequency'],
+                scanning=sample_data_sparse['scanning'],
+                name='d0',
+            )
+        else:
+            data = f.create_data_group(
+                sample_data['PSD'],
+                sample_data['frequency'],
+                sample_data['pixel_size'],
+                name='d0',
+            )
+
+        md = data.get_metadata()
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Temperature': brim.Metadata.Item(21.0, 'C')},
+            local=True,
+        )
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Datetime': '2026-01-01T10:00:00'},
+            local=True,
+        )
+
+        exp_md = md.to_dict(brim.Metadata.Type.Experiment)
+        assert exp_md['Temperature'].value == 21.0
+        assert exp_md['Temperature'].units == 'C'
+        assert exp_md['Datetime'].value == '2026-01-01T10:00:00'
+        f.close()
+
+        # Independent on-disk check: adding a second metadata key must not drop existing keys.
+        root = zarr.open(str(filename), mode='r')
+        data_0 = root['Brillouin_data']['Data_0']
+
+        if brim_version.startswith('0.1'):
+            assert data_0.attrs['Experiment.Temperature'] == 21.0
+            assert data_0.attrs['Experiment.Temperature_units'] == 'C'
+            assert data_0.attrs['Experiment.Datetime'] == '2026-01-01T10:00:00'
+        else:
+            exp_dict = data_0.attrs['Metadata']['Experiment']
+            assert exp_dict['Temperature'] == 21.0
+            assert exp_dict['Temperature_units'] == 'C'
+            assert exp_dict['Datetime'] == '2026-01-01T10:00:00'
+
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    def test_add_global_metadata_does_not_overwrite_existing_fields(
+        self,
+        tmp_path,
+        sample_data,
+        brim_version,
+    ):
+        """Spec: /Brillouin_data Metadata should preserve existing fields when adding new ones."""
+        filename = tmp_path / f'metadata_global_merge_v{brim_version}.brim.zarr'
+
+        f = brim.File.create(str(filename), store_type=brim.StoreType.AUTO, brim_version=brim_version)
+        data = f.create_data_group(
+            sample_data['PSD'],
+            sample_data['frequency'],
+            sample_data['pixel_size'],
+            name='d0',
+        )
+
+        md = data.get_metadata()
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Temperature': brim.Metadata.Item(24.0, 'C')},
+            local=False,
+        )
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Datetime': '2026-01-02T11:30:00'},
+            local=False,
+        )
+
+        exp_md = md.to_dict(brim.Metadata.Type.Experiment)
+        assert exp_md['Temperature'].value == 24.0
+        assert exp_md['Temperature'].units == 'C'
+        assert exp_md['Datetime'].value == '2026-01-02T11:30:00'
+        f.close()
+
+        # Independent on-disk check: global metadata key additions are merged.
+        root = zarr.open(str(filename), mode='r')
+        exp_dict = root['Brillouin_data'].attrs['Metadata']['Experiment']
+        assert exp_dict['Temperature'] == 24.0
+        assert exp_dict['Temperature_units'] == 'C'
+        assert exp_dict['Datetime'] == '2026-01-02T11:30:00'
+
 
 class TestLocalVsGlobalMetadata:
     """Tests for local vs global metadata handling."""
@@ -338,4 +489,68 @@ class TestMetadataValidationIntegration:
         temp = md['Experiment.Temperature']
         assert temp.value == 23.0
         assert temp.units == 'C'
+        f.close()
+
+
+class TestMetadataInheritanceMatrix:
+    """Coverage for global/local/both metadata visibility and precedence."""
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', SCHEMA_FIELDS)
+    @pytest.mark.parametrize('scope', ['global_only', 'local_only', 'both'])
+    def test_metadata_scope_precedence_in_to_dict(self, request, file_fixture_name, md_type, field, scope):
+        """Spec: Data-level metadata overrides Brillouin_data metadata of the same field."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        global_value, global_units = _sample_value_for_field(field, seed=11)
+        local_value, local_units = _sample_value_for_field(field, seed=77)
+
+        if scope in ('global_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(global_value, global_units)}, local=False)
+        if scope in ('local_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(local_value, local_units)}, local=True)
+
+        out = md.to_dict(md_type)
+        assert field.name in out
+
+        if scope == 'global_only':
+            assert out[field.name].value == global_value
+            assert out[field.name].units == global_units
+        else:
+            # local_only + both should both resolve to local
+            assert out[field.name].value == local_value
+            assert out[field.name].units == local_units
+
+        f.close()
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', SCHEMA_FIELDS)
+    @pytest.mark.parametrize('scope', ['global_only', 'local_only', 'both'])
+    def test_metadata_scope_precedence_in_getitem(self, request, file_fixture_name, md_type, field, scope):
+        """Spec: single-item metadata reads follow the same precedence as dict reads."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        global_value, global_units = _sample_value_for_field(field, seed=3)
+        local_value, local_units = _sample_value_for_field(field, seed=9)
+
+        if scope in ('global_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(global_value, global_units)}, local=False)
+        if scope in ('local_only', 'both'):
+            md.add(md_type, {field.name: brim.Metadata.Item(local_value, local_units)}, local=True)
+
+        item = md[f'{md_type.value}.{field.name}']
+
+        if scope == 'global_only':
+            assert item.value == global_value
+            assert item.units == global_units
+        else:
+            assert item.value == local_value
+            assert item.units == local_units
+
         f.close()

@@ -471,7 +471,7 @@ class Data:
         return (None, None)
 
     def create_calibration_group(self, *, index: NDArray[np.integer] | None = None, calibration_data: list[dict[str, Any]] | None = None,
-                                 timestamp: list[NDArray[Any]] | None = None, same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
+                                 same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
                                  compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Calibration:
         """
         Create a new calibration group in the current data group.
@@ -482,9 +482,7 @@ class Data:
                 this must be 1D; for non-sparse data, this must be 3D.  
                 It can be omitted if each element in `calibration_data` contains only one spectrum.
             calibration_data (list[dict[str, Any]] | None, optional): Calibration entries to store.
-                Each dictionary must contain `spectra` and `shift` keys, and may provide `shift_units`.                
-            timestamp (list[NDArray[Any]] | None, optional): Timestamp arrays corresponding to each calibration
-                entry. If provided, its length must match `calibration_data`. Defaults to None.
+                Each dictionary must contain `spectra` and `shift` keys, and may provide `shift_units`.   
             same_as (int | None, optional): If provided, links this calibration group to an existing
                 calibration via the `Same_as` attribute. When set, the other data arguments are ignored.
                 Defaults to None.
@@ -497,7 +495,7 @@ class Data:
             Calibration: The newly created calibration group.
 
         Raises:
-            ValueError: If the provided calibration data, index, or timestamp is invalid or inconsistent.
+            ValueError: If the provided calibration data or index is invalid or inconsistent.
         """
         calibration_path = concatenate_paths(self._path, brim_obj_names.data.calibration)
         calibration_group = sync(self._file.create_group(calibration_path))
@@ -517,13 +515,7 @@ class Data:
                 if self._sparse and index.ndim != 1:
                     raise ValueError("'index' must be a 1D array for sparse data")
                 if not self._sparse and index.ndim != 3:
-                    raise ValueError("'index' must be a 3D array for non-sparse data")
-            # check that timestamp is valid if provided
-            if timestamp is not None: 
-                if not isinstance(timestamp, (list, tuple)):
-                    timestamp = [timestamp,]
-                if len(timestamp) != len(calibration_data):
-                    raise ValueError("If 'timestamp' is provided, it must have the same length as 'calibration_data'")            
+                    raise ValueError("'index' must be a 3D array for non-sparse data")           
 
             for m, calib in enumerate(calibration_data):
                 # check that each element in calibration_data is a dictionary containing 'spectra' and 'shift' keys
@@ -549,11 +541,6 @@ class Data:
                 spectra_dataset = sync(self._file.create_dataset(calibration_group, f'{m}', cal_spectra, chunk_size=_determine_chunk_size(cal_spectra), compression=compression))
                 sync(self._file.create_attr(spectra_dataset, 'Shift', cal_shift))
                 units.add_to_attribute(self._file, spectra_dataset, 'Shift', cal_shift_units)
-                if timestamp is not None:
-                    timestamp_array = np.array(timestamp[m])
-                    if timestamp_array.ndim != 1 or timestamp_array.shape[0] != cal_spectra.shape[0]:
-                        raise ValueError("Each element in 'timestamp' must be a 1D array with the same length as the number of spectra in each calibration data element")
-                    sync(self._file.create_dataset(calibration_group, f'Timestamp_{m}', timestamp_array, compression=compression))
             # add the index array to the file
             if index is not None:
                 sync(self._file.create_dataset(calibration_group, 'Index', index, compression=compression))
@@ -703,7 +690,7 @@ class Data:
                                     spatial_map=self._spatial_map, spatial_map_px_size=self._spatial_map_px_size, sparse=self._sparse)
 
     def _add_data(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, freq_units='GHz',
-                  timestamp: np.ndarray = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+                compression: FileAbstraction.Compression = FileAbstraction.Compression()):
         """
         Add data to the current data group.
 
@@ -728,9 +715,6 @@ class Data:
                 - 'Cartesian_visualisation_pixel' (recommended with Cartesian_visualisation): 
                    Tuple/list of 3 float values (z, y, x) representing pixel size. Unused dimensions can be None.
                 - 'Cartesian_visualisation_pixel_unit' (optional): String for pixel size unit (default: 'um').
-            timestamp (np.ndarray, optional): Timestamps in milliseconds for each spectrum.
-                Must be a 1D array with length equal to PSD.shape[0].
-
 
         Raises:
             ValueError: If any of the data provided is not valid or consistent
@@ -785,10 +769,6 @@ class Data:
         if not has_spatial_mapping and self._sparse:
             raise ValueError("For sparse data, 'scanning' must be provided and must contain at least one of 'Spatial_map' or 'Cartesian_visualisation'")
 
-        if timestamp is not None:
-            if not isinstance(timestamp, np.ndarray) or timestamp.ndim != 1 or len(timestamp) != PSD.shape[0]:
-                raise ValueError("timestamp is not compatible with PSD")
-
         # TODO: add and validate additional datasets (i.e. 'Parameters', 'Calibration_index', etc.)
 
         # Add datasets to the group
@@ -833,10 +813,6 @@ class Data:
                     units.add_to_attribute(self._file, cv, 'element_size', px_unit)
 
         self._spatial_map, self._spatial_map_px_size = sync(self._load_spatial_mapping_async())
-
-        if timestamp is not None:
-            sync(self._file.create_dataset(
-                self._group, 'Timestamp', data=timestamp, compression=compression))
 
     @staticmethod
     def list_data_groups(file: FileAbstraction, retrieve_custom_name=False) -> list:

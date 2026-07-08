@@ -4,6 +4,9 @@ The assertions in this file are derived from the BRIM specification:
 https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md
 """
 
+import json
+import sys
+
 import pytest
 
 from brimfile.validation.main import (
@@ -11,8 +14,14 @@ from brimfile.validation.main import (
     ValidationType,
     validate_analysis_group,
     validate_data_group,
+    validate_json,
     validate_root_attrs,
 )
+from brimfile.metadata.schema import Type as MetadataType
+from brimfile.validation.versions import get_supported_versions, get_version_rules
+
+
+SUPPORTED_VERSIONS = get_supported_versions()
 
 
 def _array(shape, *, dtype="float64", attributes=None):
@@ -366,6 +375,159 @@ def test_validate_root_attrs_warns_on_unknown_feature_for_singlepoint_subtype():
     assert len(feature_warnings) == 1
 
 
+@pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+def test_validate_root_attrs_accepts_all_supported_versions(brim_version):
+    attrs = {
+        "brim_version": brim_version,
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    version_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.ERROR,
+        path_contains="brim_version",
+    )
+    assert version_errors == []
+
+
+def test_validate_root_attrs_rejects_missing_brim_version():
+    attrs = {}
+
+    errors = validate_root_attrs(attrs)
+
+    missing_version_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ATTRIBUTE,
+        level=ValidationLevel.ERROR,
+        path_contains="brim_version",
+    )
+    assert len(missing_version_errors) == 1
+
+
+@pytest.mark.parametrize('invalid_version', ['9.9', 'garbage', '1'])
+def test_validate_root_attrs_lists_all_registered_versions_when_unsupported(invalid_version):
+    attrs = {
+        "brim_version": invalid_version,
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    version_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.ERROR,
+        path_contains="brim_version",
+    )
+    assert len(version_errors) == 1
+    for supported_version in SUPPORTED_VERSIONS:
+        assert supported_version in version_errors[0].message
+
+
+def test_validate_data_group_v0_2_rejects_flattened_metadata_overrides():
+    node = _non_sparse_data_group()
+    node["attributes"]["Experiment.Temperature"] = 25.0
+    node["attributes"]["Experiment.Temperature_units"] = "C"
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        version_rules=get_version_rules("0.2"),
+    )
+
+    flattened_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.ERROR,
+        path_contains="Experiment.Temperature",
+    )
+    assert len(flattened_errors) == 2
+
+
+def test_validate_data_group_v0_2_accepts_nested_metadata_override_and_arrays_group():
+    node = _non_sparse_data_group()
+    node["attributes"]["Metadata"] = {
+        "Experiment": {
+            "_arrays": ["Temperature"],
+        }
+    }
+    node["Metadata"] = _group(
+        Experiment=_group(
+            Temperature=_array((2, 3, 4), dtype="float64"),
+        )
+    )
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        version_rules=get_version_rules("0.2"),
+    )
+
+    metadata_errors = _errors_matching(
+        errors,
+        path_contains="Data_0/Metadata",
+    )
+    assert metadata_errors == []
+
+
+def test_validate_data_group_v0_2_requires_arrays_declared_in_metadata():
+    node = _non_sparse_data_group()
+    node["attributes"]["Metadata"] = {
+        "Experiment": {
+            "_arrays": ["Temperature"],
+        }
+    }
+    node["Metadata"] = _group(
+        Experiment=_group()
+    )
+
+    errors = validate_data_group(
+        node,
+        path="Brillouin_data/Data_0",
+        version_rules=get_version_rules("0.2"),
+    )
+
+    missing_array_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ARRAY,
+        level=ValidationLevel.ERROR,
+        path_contains="Data_0/Metadata/Experiment/Temperature",
+    )
+    assert len(missing_array_errors) == 1
+
+
+def test_validate_json_v0_1_does_not_import_v0_2_rules_module():
+    sys.modules.pop("brimfile.validation.versions.v0_2", None)
+
+    descriptor = {
+        "node_type": "group",
+        "attributes": {
+            "brim_version": "0.1",
+        },
+        "Brillouin_data": {
+            "node_type": "group",
+            "attributes": {
+                "Metadata": {},
+            },
+            "Data_0": {
+                "node_type": "group",
+                "attributes": {
+                    "Sparse": True,
+                },
+                "PSD": _array((3, 10)),
+                "Frequency": _array((10,), attributes={"Units": "GHz"}),
+                "Scanning": _group(Cartesian_visualisation=_array((1, 1, 3), dtype="int32")),
+                "Analysis_0": _analysis_group(result_shape=(3,)),
+            },
+        },
+    }
+
+    validate_json(json.dumps(descriptor))
+
+    assert "brimfile.validation.versions.v0_2" not in sys.modules
+
+
 def test_singlepoint_vipa_requires_2darray_storage_in_data_or_calibration_raw_data():
     node = _non_sparse_data_group()
 
@@ -518,3 +680,315 @@ def test_singlepoint_vipa_accepts_calibration_raw_data_numeric_material_groups()
         path_contains="Calibration/Raw_data",
     )
     assert calibration_errors == []
+
+
+def test_validate_json_rejects_invalid_json_payload():
+    with pytest.raises(ValueError, match="Invalid JSON format"):
+        validate_json("{not-json")
+
+
+def test_validate_json_rejects_non_object_top_level():
+    with pytest.raises(ValueError, match="JSON object"):
+        validate_json(json.dumps([1, 2, 3]))
+
+
+def test_validate_json_reports_missing_brillouin_data_group():
+    descriptor = {
+        "node_type": "group",
+        "attributes": {
+            "brim_version": SUPPORTED_VERSIONS[0],
+        },
+    }
+
+    errors = validate_json(json.dumps(descriptor))
+
+    missing_group_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_GROUP,
+        level=ValidationLevel.CRITICAL,
+        path_contains="Brillouin_data",
+    )
+    assert len(missing_group_errors) == 1
+
+
+def test_validate_root_attrs_rejects_non_string_subtype():
+    attrs = {
+        "brim_version": SUPPORTED_VERSIONS[0],
+        "Subtype": 123,
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    subtype_type_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_TYPE,
+        level=ValidationLevel.ERROR,
+        path_contains="Subtype",
+    )
+    assert len(subtype_type_errors) == 1
+
+
+def test_validate_root_attrs_rejects_non_list_subtype_features():
+    attrs = {
+        "brim_version": SUPPORTED_VERSIONS[0],
+        "Subtype": "SinglePoint_VIPA_v0.1",
+        "Subtype_features": "2DArray_per_spectrum",
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    feature_type_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_TYPE,
+        level=ValidationLevel.ERROR,
+        path_contains="Subtype_features",
+    )
+    assert len(feature_type_errors) == 1
+
+
+def test_validate_json_requires_all_metadata_types_in_brillouin_data_metadata():
+    descriptor = {
+        "node_type": "group",
+        "attributes": {
+            "brim_version": SUPPORTED_VERSIONS[0],
+        },
+        "Brillouin_data": {
+            "node_type": "group",
+            "attributes": {
+                "Metadata": {
+                    "Experiment": {},
+                },
+            },
+            "Data_0": {
+                "node_type": "group",
+                "attributes": {
+                    "Sparse": True,
+                },
+                "PSD": _array((3, 10)),
+                "Frequency": _array((10,), attributes={"Units": "GHz"}),
+                "Scanning": _group(Cartesian_visualisation=_array((1, 1, 3), dtype="int32")),
+                "Analysis_0": _analysis_group(result_shape=(3,)),
+            },
+        },
+    }
+
+    errors = validate_json(json.dumps(descriptor))
+
+    missing_md_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_METADATA,
+        level=ValidationLevel.ERROR,
+        path_contains="Metadata.",
+    )
+    # Only Experiment is present; remaining metadata sections should be reported missing.
+    assert len(missing_md_errors) == len(MetadataType) - 1
+
+
+def test_validate_data_group_warns_when_scanning_present_for_non_sparse_data():
+    node = _non_sparse_data_group()
+    node["Scanning"] = _group(Cartesian_visualisation=_array((2, 3, 4), dtype="int32"))
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    scanning_warnings = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.WARNING,
+        path_contains="Scanning",
+    )
+    assert len(scanning_warnings) == 1
+
+
+def test_validate_data_group_requires_frequency_units_attribute():
+    node = _non_sparse_data_group()
+    node["Frequency"] = _array((151,), attributes={})
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    unit_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_UNITS,
+        level=ValidationLevel.ERROR,
+        path_contains="Frequency",
+    )
+    assert len(unit_errors) == 1
+
+
+def test_validate_data_group_requires_parameters_when_psd_has_extra_dimensions():
+    node = _non_sparse_data_group(psd_shape=(2, 3, 4, 7, 151), frequency_shape=(151,))
+    node.pop("Parameters", None)
+    node["Analysis_0"] = _analysis_group(result_shape=(2, 3, 4, 7))
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    parameters_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ARRAY,
+        level=ValidationLevel.ERROR,
+        path_contains="Data_0",
+    )
+    assert len(parameters_errors) == 1
+    assert "Parameters" in parameters_errors[0].message
+
+
+def test_validate_json_reports_missing_root_attributes_group():
+    descriptor = {
+        "node_type": "group",
+        "Brillouin_data": {
+            "node_type": "group",
+            "attributes": {"Metadata": {}},
+            "Data_0": _non_sparse_data_group(),
+        },
+    }
+
+    errors = validate_json(json.dumps(descriptor))
+
+    root_attr_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ATTRIBUTE,
+        level=ValidationLevel.CRITICAL,
+    )
+    assert root_attr_errors
+
+
+def test_validate_json_reports_unsupported_version_blocks_brillouin_group_validation():
+    descriptor = {
+        "node_type": "group",
+        "attributes": {"brim_version": "9.9"},
+        "Brillouin_data": {
+            "node_type": "group",
+            "attributes": {"Metadata": {}},
+            "Data_0": _non_sparse_data_group(),
+        },
+    }
+
+    errors = validate_json(json.dumps(descriptor))
+
+    unsupported_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_VALUE,
+        level=ValidationLevel.ERROR,
+        path_contains="brim_version",
+    )
+    assert len(unsupported_errors) >= 1
+    assert any("Cannot validate 'Brillouin_data'" in err.message for err in unsupported_errors)
+
+
+def test_validate_root_attrs_warns_when_subtype_features_missing():
+    attrs = {
+        "brim_version": SUPPORTED_VERSIONS[0],
+        "Subtype": "SinglePoint_VIPA_v0.1",
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    missing_features_warning = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ATTRIBUTE,
+        level=ValidationLevel.WARNING,
+        path_contains="Subtype_features",
+    )
+    assert len(missing_features_warning) == 1
+
+
+def test_validate_root_attrs_rejects_non_string_subtype_feature_entries():
+    attrs = {
+        "brim_version": SUPPORTED_VERSIONS[0],
+        "Subtype": "SinglePoint_VIPA_v0.1",
+        "Subtype_features": ["2DArray_per_spectrum", 123],
+    }
+
+    errors = validate_root_attrs(attrs)
+
+    feature_type_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_TYPE,
+        level=ValidationLevel.ERROR,
+        path_contains="Subtype_features",
+    )
+    assert len(feature_type_errors) == 1
+
+
+def test_validate_data_group_rejects_non_boolean_sparse_attribute():
+    node = _non_sparse_data_group()
+    node["attributes"]["Sparse"] = "yes"
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    sparse_type_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_TYPE,
+        level=ValidationLevel.ERROR,
+        path_contains="Sparse",
+    )
+    assert len(sparse_type_errors) == 1
+
+
+def test_validate_data_group_requires_psd_array():
+    node = _non_sparse_data_group()
+    del node["PSD"]
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    psd_missing_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ARRAY,
+        level=ValidationLevel.CRITICAL,
+        path_contains="Data_0",
+    )
+    assert any("PSD" in err.message for err in psd_missing_errors)
+
+
+def test_validate_data_group_requires_frequency_array():
+    node = _non_sparse_data_group()
+    del node["Frequency"]
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    freq_missing_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.MISSING_ARRAY,
+        level=ValidationLevel.CRITICAL,
+        path_contains="Data_0",
+    )
+    assert any("Frequency" in err.message for err in freq_missing_errors)
+
+
+def test_validate_data_group_rejects_spatial_map_with_mismatched_coordinate_lengths():
+    node = _sparse_data_group(
+        scanning=_group(
+            Spatial_map=_group(
+                x=_array((5,), dtype="float64"),
+                y=_array((6,), dtype="float64"),
+            )
+        )
+    )
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    spatial_len_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_SHAPE,
+        level=ValidationLevel.CRITICAL,
+        path_contains="Scanning/Spatial_map",
+    )
+    assert len(spatial_len_errors) >= 1
+
+
+def test_validate_data_group_warns_when_cartesian_visualisation_size_differs_from_sparse_psd():
+    node = _sparse_data_group(
+        psd_shape=(12, 151),
+        scanning=_group(
+            Cartesian_visualisation=_array((2, 2, 2), dtype="int32")
+        ),
+    )
+
+    errors = validate_data_group(node, path="Brillouin_data/Data_0")
+
+    mismatch_warnings = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_SHAPE,
+        level=ValidationLevel.WARNING,
+        path_contains="Cartesian_visualisation",
+    )
+    assert len(mismatch_warnings) == 1

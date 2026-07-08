@@ -4,9 +4,14 @@ Unit tests for the File class in brimfile.
 
 import pytest
 import os
+import zarr
 
 
 import brimfile as brim
+from brimfile.validation.versions import get_supported_versions
+
+
+SUPPORTED_VERSIONS = get_supported_versions()
 class TestFileCreation:
     """Tests for File creation and initialization."""
     
@@ -50,6 +55,36 @@ class TestFileCreation:
         f = brim.File(simple_brim_file)
         assert f.is_valid() is True
         f.close()
+
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    def test_supported_brim_versions_round_trip_on_create_and_open(self, tmp_path, brim_version):
+        """Spec: root brim_version must be persisted and readable for each supported version."""
+        filename = os.path.join(tmp_path, f'test_version_{brim_version}.brim.zarr')
+
+        created = brim.File.create(
+            filename,
+            store_type=brim.StoreType.AUTO,
+            brim_version=brim_version,
+        )
+
+        stored_version_create = brim.file_abstraction.sync(
+            created._file.get_attr('/', 'brim_version')
+        )
+        assert stored_version_create == brim_version
+        created.close()
+
+        # Independent on-disk verification via raw zarr inspection.
+        root = zarr.open(filename, mode='r')
+        assert root.attrs['brim_version'] == brim_version
+        assert 'Brillouin_data' in root
+
+        opened = brim.File(filename, mode='r', store_type=brim.StoreType.AUTO)
+        stored_version_open = brim.file_abstraction.sync(
+            opened._file.get_attr('/', 'brim_version')
+        )
+        assert stored_version_open == brim_version
+        assert opened._file.version == brim.File._parse_version_tuple3(brim_version)
+        opened.close()
 
 
 class TestFileReadOnly:

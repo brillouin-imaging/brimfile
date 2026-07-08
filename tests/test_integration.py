@@ -6,9 +6,60 @@ import pytest
 import numpy as np
 import os
 from datetime import datetime
+import json
 
 
 import brimfile as brim
+from brimfile.metadata.schema import METADATA_SCHEMA
+from brimfile.validation.main import ValidationLevel, ValidationType, validate_json
+from brimfile.validation.json_descriptor import generate_json_descriptor
+from brimfile.validation.versions import get_supported_versions
+
+
+SUPPORTED_VERSIONS = get_supported_versions()
+
+
+def _required_metadata_payload(md_type, *, seed: int):
+    payload = {}
+    cursor = seed
+    for field in METADATA_SCHEMA[md_type]:
+        if not field.required:
+            continue
+        if field.enum_type is not None:
+            value = list(field.enum_type)[0].value
+            units = None
+        elif field.python_type is float:
+            value = float(cursor)
+            units = 'arb' if field.units_required else None
+        elif field.python_type is str:
+            value = f'value_{cursor}'
+            units = 'arb' if field.units_required else None
+        else:
+            value = [float(cursor), float(cursor) + 1.0]
+            units = 'arb' if field.units_required else None
+
+        payload[field.name] = brim.Metadata.Item(value, units)
+        cursor += 1
+    return payload
+
+
+def _add_minimally_valid_required_metadata(metadata_obj):
+    # spec: root Brillouin_data metadata should include all metadata types.
+    for i, md_type in enumerate(brim.Metadata.Type):
+        metadata_obj.add(md_type, _required_metadata_payload(md_type, seed=10 * (i + 1)), local=False)
+
+
+def _descriptor_errors_matching(errors, *, err_type=None, level=None, path_contains=None):
+    out = []
+    for err in errors:
+        if err_type is not None and err.type != err_type:
+            continue
+        if level is not None and err.level != level:
+            continue
+        if path_contains is not None and (err.path is None or path_contains not in err.path):
+            continue
+        out.append(err)
+    return out
 
 
 class TestCompleteWorkflow:
@@ -373,3 +424,133 @@ class TestFileLifecycle:
         groups = f.list_data_groups()
         assert len(groups) == 2
         f.close()
+
+
+class TestJsonDescriptorConformance:
+    """Spec-conformance checks based on generated JSON descriptors from real files."""
+
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    @pytest.mark.parametrize('sparse', [False, True])
+    @pytest.mark.parametrize('metadata_scope', ['global_only', 'local_only', 'both'])
+    def test_written_file_descriptor_validates_for_version_sparse_and_metadata_scope(
+        self,
+        tmp_path,
+        sample_data,
+        sample_data_sparse,
+        brim_version,
+        sparse,
+        metadata_scope,
+    ):
+        """spec: descriptor generated from written file should validate without errors/criticals."""
+        filename = os.path.join(
+            tmp_path,
+            f'descriptor_v{brim_version}_{"sparse" if sparse else "dense"}_{metadata_scope}.brim.zarr',
+        )
+
+        f = brim.File.create(filename, store_type=brim.StoreType.AUTO, brim_version=brim_version)
+        if sparse:
+            data = f.create_data_group_sparse(
+                sample_data_sparse['PSD'],
+                sample_data_sparse['frequency'],
+                scanning=sample_data_sparse['scanning'],
+                name='d0',
+            )
+        else:
+            data = f.create_data_group(
+                sample_data['PSD'],
+                sample_data['frequency'],
+                sample_data['pixel_size'],
+                name='d0',
+            )
+
+        md = data.get_metadata()
+        _add_minimally_valid_required_metadata(md)
+
+        # spec: local metadata should override global values at Data_{n} level.
+        if metadata_scope in ('local_only', 'both'):
+            md.add(
+                brim.Metadata.Type.Experiment,
+                {'Temperature': brim.Metadata.Item(37.5, 'C')},
+                local=True,
+            )
+        if metadata_scope == 'local_only':
+            md.add(
+                brim.Metadata.Type.Experiment,
+                {'Temperature': brim.Metadata.Item(22.0, 'C')},
+                local=False,
+            )
+
+        analysis_input = sample_data_sparse if sparse else sample_data
+        data.create_analysis_results_group(
+            {
+                'shift': analysis_input['shift'],
+                'shift_units': 'GHz',
+                'width': analysis_input['width'],
+                'width_units': 'GHz',
+            },
+            {
+                'shift': analysis_input['shift'],
+                'shift_units': 'GHz',
+                'width': analysis_input['width'],
+                'width_units': 'GHz',
+            },
+            fit_model=brim.Data.AnalysisResults.FitModel.Lorentzian,
+        )
+
+        f.close()
+        reader = brim.File(filename, mode='r')
+        descriptor_json = generate_json_descriptor(reader._file)
+        reader.close()
+
+        validation_errors = validate_json(descriptor_json)
+        blocking = [
+            err for err in validation_errors
+            if err.level in (ValidationLevel.ERROR, ValidationLevel.CRITICAL)
+        ]
+        assert blocking == []
+
+    @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
+    def test_generated_descriptor_rejects_missing_root_brim_version(self, tmp_path, sample_data, brim_version):
+        """spec: root brim_version is required and must be present in descriptor."""
+        filename = os.path.join(tmp_path, f'descriptor_missing_version_{brim_version}.brim.zarr')
+
+        f = brim.File.create(filename, store_type=brim.StoreType.AUTO, brim_version=brim_version)
+        data = f.create_data_group(
+            sample_data['PSD'],
+            sample_data['frequency'],
+            sample_data['pixel_size'],
+            name='d0',
+        )
+        md = data.get_metadata()
+        _add_minimally_valid_required_metadata(md)
+        data.create_analysis_results_group(
+            {
+                'shift': sample_data['shift'],
+                'shift_units': 'GHz',
+                'width': sample_data['width'],
+                'width_units': 'GHz',
+            },
+            {
+                'shift': sample_data['shift'],
+                'shift_units': 'GHz',
+                'width': sample_data['width'],
+                'width_units': 'GHz',
+            },
+            fit_model=brim.Data.AnalysisResults.FitModel.Lorentzian,
+        )
+        f.close()
+        reader = brim.File(filename, mode='r')
+        descriptor_json = generate_json_descriptor(reader._file)
+        reader.close()
+
+        descriptor = json.loads(descriptor_json)
+        del descriptor['attributes']['brim_version']
+
+        validation_errors = validate_json(json.dumps(descriptor))
+        missing_version_errors = _descriptor_errors_matching(
+            validation_errors,
+            err_type=ValidationType.MISSING_ATTRIBUTE,
+            level=ValidationLevel.ERROR,
+            path_contains='brim_version',
+        )
+        assert len(missing_version_errors) == 1

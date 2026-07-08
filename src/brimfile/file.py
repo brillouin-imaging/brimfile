@@ -10,7 +10,7 @@ from .constants import brim_obj_names
 from . import units
 from . import subtypes
 
-from .file_abstraction import FileAbstraction, StoreType, sync
+from .file_abstraction import FileAbstraction, StoreType, sync, Version
 from .validation import validate_json, ValidationError, ValidationLevel
 from .validation.json_descriptor import generate_json_descriptor
 
@@ -29,6 +29,7 @@ class File:
     if "pyodide" in sys.modules:
         def __init__(self, file):
             self._file = file
+            self._file.version = self._get_file_version_tuple()
             if not self.is_valid():
                 raise ValueError("The brim file is not valid!")
     else:
@@ -49,6 +50,7 @@ class File:
             """
             self._file = _AbstractFile(
                 filename, mode=mode, store_type=store_type)
+            self._file.version = self._get_file_version_tuple()
             if not self.is_valid():
                 raise ValueError("The brim file is not valid!")
             if validate:
@@ -58,6 +60,47 @@ class File:
                         warnings.warn(f"Validation warning at {err.path}: {err.message}")
                     elif err.level == ValidationLevel.CRITICAL:
                         raise ValueError(f"Validation error at {err.path}: {err.message}")
+
+    @staticmethod
+    def _parse_version_tuple3(version: str) -> Version:
+        """Normalize a version value into a 3-item tuple (major, minor, patch)."""
+        if isinstance(version, str):
+            parts = [part for part in version.split('.') if part != '']
+        elif isinstance(version, (list, tuple)):
+            parts = list(version)
+        else:
+            raise ValueError(f"Invalid version format: {version}")
+
+        # convert the first 3 parts to int if they are digits (str), otherwise keep them as they are
+        normalized: list[int | str] = []
+        for part in parts[:3]:
+            if isinstance(part, str) and part.isdigit():
+                normalized.append(int(part))
+            else:
+                try:
+                    part = int(part)
+                    normalized.append(part)
+                except (ValueError, TypeError):
+                    raise ValueError(f"Invalid version part: {part}")                
+
+        # add zeros to the end of the list until it has 3 elements
+        while len(normalized) < 3:
+            normalized.append(0)
+
+        return (normalized[0], normalized[1], normalized[2])
+
+    def _get_file_version_tuple(self) -> Version:
+        """
+        Read brim_version from file root attributes and return a 3-item tuple.
+        Returns:
+            Version: A tuple representing the version of the brim file in the format (major, minor, patch).
+            If the version can't be read from the file, returns None.
+        """
+        try:
+            version = sync(self._file.get_attr('/', 'brim_version'))
+        except Exception:
+            return None
+        return self._parse_version_tuple3(version)
 
     def validate(self) -> list[ValidationError]:
         """
@@ -97,14 +140,14 @@ class File:
 
     @classmethod
     def create(cls, filename: str, store_type: StoreType = StoreType.AUTO, *, 
-               brim_version: str = '0.1') -> 'File':
+               brim_version: str = '0.2') -> 'File':
         """
         Create a new brim file with the specified filename. If the file exists already it will generate an error.
 
         Args:
             filename (str): Path to the brim file to be created.
             store_type (StoreType): Type of the store to use, as defined in `brimfile.file_abstraction.StoreType`. Default is 'AUTO'.
-            brim_version (str): Version of the brim file format to use. Default is '0.1'.
+            brim_version (str): Version of the brim file format to use. Default is '0.2'.
 
         Returns:
             File: An instance of the File class representing the newly created brim file.
@@ -113,6 +156,7 @@ class File:
         f = cls(filename, mode='w-', store_type=store_type)
 
         # File version
+        f._file.version = cls._parse_version_tuple3(brim_version)
         sync(f._file.create_attr('/', 'brim_version', brim_version))
 
         # Root Brillouin_data group
@@ -150,7 +194,7 @@ class File:
         return self._create_data_group_raw(PSD, frequency, scanning = None, sparse = False, px_size_um=px_size_um, 
                                              index=index, name=name, compression=compression)
 
-    def create_data_group_sparse(self, PSD: np.ndarray, frequency: np.ndarray, scanning: dict, *, timestamp: np.ndarray = None,
+    def create_data_group_sparse(self, PSD: np.ndarray, frequency: np.ndarray, scanning: dict, *,
                                 index: int = None, name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new [sparse data entry](https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md) to the file.
@@ -164,7 +208,6 @@ class File:
             frequency (np.ndarray): The frequency data corresponding to the PSD. Must be broadcastable to the PSD array.
             scanning (dict): Dictionary defining the spatial mapping. Must include at least 'Spatial_map' or 'Cartesian_visualisation'.
                 See `brimfile.data.Data._add_data` docstring for detailed structure of the scanning dictionary.
-            timestamp (np.ndarray, optional): Timestamps in milliseconds for the data. Defaults to None.
             index (int, optional): The index for the new data group. If None, the next available index is used. Defaults to None.
             name (str, optional): The name for the new data group. Defaults to None.
             compression (FileAbstraction.Compression, optional): The compression method to use for the data. Defaults to FileAbstraction.Compression.DEFAULT.
@@ -174,9 +217,9 @@ class File:
             IndexError: If the specified index already exists in the dataset.
             ValueError: If any of the data provided is not valid or consistent
         """
-        return self._create_data_group_raw(PSD, frequency, scanning=scanning, timestamp=timestamp, sparse=True, index=index, name=name, compression=compression)   
+        return self._create_data_group_raw(PSD, frequency, scanning=scanning, sparse=True, index=index, name=name, compression=compression)   
     
-    def _create_data_group_raw(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, px_size_um = None, timestamp: np.ndarray = None, sparse: bool = False,
+    def _create_data_group_raw(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, px_size_um = None, sparse: bool = False,
                                 index: int = None, name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new data entry to the file. Check the documentation for `brimfile.data.Data._add_data` for more details on the parameters.
@@ -186,7 +229,6 @@ class File:
             scanning (dict, optional): Spatial mapping metadata. Required for sparse=True, optional for sparse=False.
                 See `brimfile.data.Data._add_data` docstring for detailed structure.
             px_size_um (tuple, optional): A tuple of 3 elements (z, y, x) for pixel size in μm. For non-sparse data only.
-            timestamp (np.ndarray, optional): Timestamps in milliseconds for the data. Defaults to None.
             sparse (bool): Whether the data is sparse. See https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md for details. Defaults to False.
             index (int, optional): The index for the new data group. If None, the next available index is used. Defaults to None.
             name (str, optional): The name for the new data group. Defaults to None.
@@ -216,8 +258,7 @@ class File:
         elif not sparse:
             warnings.warn("Pixel size is not provided for non-sparse data. It is recommended to provide it for proper spatial calibration and visualization.")
         # add the data to the data group
-        d._add_data(PSD, frequency, scanning = scanning,
-                   timestamp=timestamp, compression=compression)
+        d._add_data(PSD, frequency, scanning = scanning, compression=compression)
         return d
 
     def list_data_groups(self, retrieve_custom_name=False) -> list:
