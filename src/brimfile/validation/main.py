@@ -669,6 +669,30 @@ def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=No
             path=generate_attr_path(path, 'Fit_model'),
             message=f"The analysis group '{path}' is missing the required 'Fit_model' attribute."
         ))
+    else:
+        fit_model = attrs['Fit_model']
+        allowed_fit_models = {'other', 'Lorentzian', 'DHO', 'Voigt'}
+        if not isinstance(fit_model, str):
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_TYPE,
+                path=generate_attr_path(path, 'Fit_model'),
+                message=(
+                    f"The 'Fit_model' attribute in '{path}' must be a string, "
+                    f"found '{type(fit_model).__name__}'."
+                )
+            ))
+        elif fit_model not in allowed_fit_models:
+            errs.append(ValidationError(
+                level=ValidationLevel.ERROR,
+                type=ValidationType.INVALID_VALUE,
+                path=generate_attr_path(path, 'Fit_model'),
+                message=(
+                    f"The 'Fit_model' attribute in '{path}' must be one of "
+                    f"{sorted(allowed_fit_models)}, found '{fit_model}'."
+                )
+            ))
+
     def _check_quantity(name: str) -> bool:
         """Validate all arrays for a given analysis quantity.
 

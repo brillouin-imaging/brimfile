@@ -217,6 +217,27 @@ def test_spec_allows_analysis_spatial_shape_when_psd_has_extra_parameter_axes():
     assert shape_errors == []
 
 
+def test_spec_allows_analysis_shape_matching_psd_without_frequency_axis():
+    analysis_node = {
+        "Shift_AS_0": _array((2, 3, 4, 7), attributes={"Units": "GHz"}),
+        "node_type": "group",
+        "attributes": {"Fit_model": "Lorentzian"},
+    }
+
+    errors = validate_analysis_group(
+        analysis_node,
+        path="Brillouin_data/Data_0/Analysis_0",
+        PSD_shape=(2, 3, 4, 7, 151),
+    )
+
+    shape_errors = _errors_matching(
+        errors,
+        err_type=ValidationType.INVALID_SHAPE,
+        path_contains="Shift_AS_0",
+    )
+    assert shape_errors == []
+
+
 def test_spec_parameters_shape_for_non_sparse_psd_with_extra_axes():
     # n_PSD = 5 -> Parameters should have n_PSD-3 = 2 dims,
     # with last dim size n_PSD-4 = 1.
@@ -263,10 +284,6 @@ def test_element_size_units_is_required():
     assert len(units_errors) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Spec defines Fit_model as enum; validator currently checks only presence.",
-)
 def test_spec_fit_model_must_match_allowed_enum_values():
     errors = validate_analysis_group(
         _analysis_group(result_shape=(2, 3, 4), fit_model="NotARealModel"),
