@@ -659,6 +659,19 @@ def _validate_data_group_metadata_overrides(
 
     return errs
 
+
+def _get_default_version_rules() -> VersionRules:
+    """Return a deterministic fallback ruleset for direct validate_data_group calls.
+
+    Full-file validation resolves rules from the root brim_version and passes
+    them down explicitly. This fallback avoids hardcoding a specific version for
+    callers that validate a data group in isolation.
+    """
+    supported_versions = get_supported_versions()
+    if not supported_versions:
+        raise RuntimeError("No brim validation versions are registered.")
+    return get_version_rules(supported_versions[0])
+
 def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=None) -> list[ValidationError]:
     errs: list[ValidationError] = []
     attrs = get_attributes(node)
@@ -761,7 +774,7 @@ def validate_data_group(
 ) -> list[ValidationError]:
     errs: list[ValidationError] = []
     if version_rules is None:
-        version_rules = get_version_rules('0.1')
+        version_rules = _get_default_version_rules()
     node_type = get_node_type(node)
     if node_type != _NodeType.GROUP:
         errs.append(ValidationError(
