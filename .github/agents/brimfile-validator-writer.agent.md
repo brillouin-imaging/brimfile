@@ -42,7 +42,7 @@ Two things you must **not** do, because they're exactly what makes multi-version
   handling) are version-invariant — duplicating the functions that implement them just to reach the few
   version-specific spots creates copies that will silently drift apart.
 - **Don't scatter `if version == '0.1': ... elif version == '0.2': ...` branches** inline through those shared
-  functions either. That scales linearly-worse with every new version and makes it hard to see, for any given
+  functions either. That gets harder to maintain with every new version, and makes it hard to see, for any given
   version, the complete set of rules that apply to it.
 
 Instead, isolate only the behaviors that genuinely differ per version into small **version strategy objects**, and
@@ -104,11 +104,14 @@ attributes (e.g. how nested vs. flattened attribute values actually round-trip t
 
 As of this writing, two spec-level things are not validated at all in the general (non-subtype) path: local metadata
 overrides on `Data_{n}` groups, and the general `Calibration` group (currently only checked inside the
-SinglePoint_VIPA subtype validator). `validate_analysis_group` also has an explicit `TODO` noting the `Fit_error`
-group isn't checked. Per the TODO-awareness discipline below, these are known gaps, not surprises — but they are
-exactly the kind of area where the version-strategy pattern above needs to be designed in from the start (e.g. local
-metadata overrides are precisely where the CHANGELOG says representation differs by version), rather than bolted on
-later as another one-off branch.
+SinglePoint_VIPA subtype validator). Re-grep before relying on this, but neither currently has a comment flagging it
+as known/planned — they're simply unimplemented, which is normal net-new work for this agent to build, not a "bug"
+needing the stop-and-ask treatment below (that treatment is specifically for *existing* logic that's wrong for a
+version it already claims to support, not for plain coverage gaps). Separately, `validate_analysis_group` does have
+an explicit `TODO` noting the `Fit_error` group isn't checked — that one is tracked, known work per the
+TODO-awareness discipline below. All three are exactly the kind of area where the version-strategy pattern above
+needs to be designed in from the start (e.g. local metadata overrides are precisely where the CHANGELOG says
+representation differs by version), rather than bolted on later as another one-off branch.
 
 ## Before concluding something is a bug: check for an existing TODO
 

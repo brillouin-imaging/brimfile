@@ -1,6 +1,6 @@
 ---
 name: brim-file-spec-conformance
-description: Use whenever writing, reviewing, or debugging brimfile test code or validation code that must confirm actual .brim file content (structure, attributes, array shapes, versioning across whichever brim_version(s) are currently implemented, sparse layout, metadata inheritance/overrides) agrees with the Brillouin-standard-file specification, rather than only with brimfile's own implementation. Also covers when to stop and ask instead of guessing: ambiguous spec wording, or spec-correct expected behavior conflicting with actual behavior with no covering TODO.
+description: Use whenever writing, reviewing, or debugging brimfile test code or validation code that must confirm actual .brim file content (structure, attributes, array shapes, versioning across whichever brim_version(s) are currently implemented, sparse layout, metadata inheritance/overrides) agrees with the Brillouin-standard-file specification, rather than only with brimfile's own implementation. Also covers when to stop and ask instead of guessing — for ambiguous spec wording, or spec-correct expected behavior conflicting with actual behavior with no covering TODO.
 license: MIT
 ---
 
@@ -18,22 +18,21 @@ implementation work" at the end calls out the parts specific to writing validato
 
 ## Where to look
 
-- `docs/brim_file_specs.md` — the current/latest spec (structure diagram + detailed field-by-field description of
-  `/`, `/Brillouin_data`, `/Data_{n}`, `PSD`, `Frequency`, `Scanning`, `Parameters`, `Analysis_{m}`, `Calibration`).
-- `docs/brim_file_metadata.md` — metadata scopes, the hierarchical override/merge rule, and the full metadata schema
-  (`Experiment`, `Optics`, `Brillouin`, `Acquisition`, `Spectrometer`) with required/optional and units-required flags.
-- `docs/brim_file_subtypes.md` — optional `Subtype`/`Subtype_features` mechanism for format extensions (e.g. the
-  `SinglePoint_VIPA` subtype implemented in `brimfile/subtypes/`).
-- `docs/v{X.Y}/` — **frozen snapshots**, kept for a version once a newer one has superseded it as "current" (e.g.
-  `docs/v0.1/` exists because a later version is now the current one).
-- `docs/brim_file_specs.md` / `brim_file_metadata.md` / `brim_file_subtypes.md` (**un-prefixed**, directly under
-  `docs/`) — the spec for the **current** version. Read its own text to see which version number that is right now
-  (as of this writing it opens with "Proposal for version 0.2 of the brim file format" and gives `'0.2'` as the
-  example `brim_version` value) — **treat this as the final, authoritative spec for that version**, not as a
-  tentative draft to wait on. The word "Proposal" in its heading reflects that it can still be edited (it isn't
-  frozen into its own `docs/v{X.Y}/` folder yet), not that implementing/testing against it should wait until it is.
-  Re-check which version this currently describes each time you use it — once it's eventually frozen into its own
-  `docs/v0.2/` folder, the un-prefixed files will describe whatever version comes next.
+- The **un-prefixed files directly under `docs/`** — `brim_file_specs.md` (structure diagram + detailed
+  field-by-field description of `/`, `/Brillouin_data`, `/Data_{n}`, `PSD`, `Frequency`, `Scanning`, `Parameters`,
+  `Analysis_{m}`, `Calibration`), `brim_file_metadata.md` (metadata scopes, the hierarchical override/merge rule,
+  and the full metadata schema — `Experiment`, `Optics`, `Brillouin`, `Acquisition`, `Spectrometer` — with
+  required/optional and units-required flags), and `brim_file_subtypes.md` (the optional `Subtype`/`Subtype_features`
+  mechanism, e.g. the `SinglePoint_VIPA` subtype implemented in `brimfile/subtypes/`) — describe the spec's
+  **current** version. Read their own text to see which version number that is right now (as of this writing they
+  open with "Proposal for version 0.2 of the brim file format" and give `'0.2'` as the example `brim_version`
+  value). **Treat this as the final, authoritative spec for that version**, not as a tentative draft to wait on —
+  the word "Proposal" in the heading reflects that it can still be edited (it isn't frozen into its own
+  `docs/v{X.Y}/` folder yet), not that implementing/testing against it should wait until it is. Re-check which
+  version this currently describes each time you use it — once it's eventually frozen into its own `docs/v0.2/`
+  folder, the un-prefixed files will describe whatever version comes next.
+- `docs/v{X.Y}/` — **frozen snapshots** of the same three files, kept for a version once a newer one has superseded
+  it as "current" (e.g. `docs/v0.1/` exists because a later version is now the current one).
 - `CHANGELOG.md` — the fastest way to see exactly what changed between versions (e.g. v0.1 → v0.2 changed measurement
   metadata overrides from flattened `Type.AttributeName` attributes to a nested `Metadata` JSON object, and added
   `_arrays` for per-position metadata). Always check this before writing a test that depends on version-specific

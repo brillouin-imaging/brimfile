@@ -43,13 +43,13 @@ Python API surface. "Comprehensive" specifically means exercising the full cross
    any test you write for one path should have a sparse (or non-sparse) counterpart unless the behavior is genuinely
    one-sided.
 3. **Metadata inheritance and precedence** — for every metadata `Type` (`Experiment`, `Optics`, `Brillouin`,
-   `Acquisition`, `Spectrometer`) and every field in `brimfile/metadata/schema.py`:
-   - value defined only globally (on `Brillouin_data`) is visible from a `Data_{n}` group's `Metadata` object,
-   - value defined only locally (`local=True`, on the `Data_{n}` group) is visible,
-   - value defined at **both** levels resolves to the local one (precedence), for both the raw dict path
+   `Acquisition`, `Spectrometer`) and every field in `brimfile/metadata/schema.py`, test that:
+   - a value defined only globally (on `Brillouin_data`) is visible from a `Data_{n}` group's `Metadata` object,
+   - a value defined only locally (`local=True`, on the `Data_{n}` group) is visible,
+   - a value defined at **both** levels resolves to the local one (precedence), for both the raw dict path
      (`to_dict`/`to_dict_async`) and the single-item path (`__getitem__` / `_get_single_item`),
    - required vs. optional fields, `units_required` fields (present/missing units), enum-typed fields (valid value,
-     invalid value), and unknown-field handling (typo suggestion vs. accepted normalization) — see
+     invalid value), and unknown-field handling (typo suggestion vs. accepted normalization) are all covered — see
      `test_metadata.py::TestMetadataValidationIntegration` for the existing pattern to extend, not duplicate,
    - `to_dict(..., validate=True, include_missing=True)` correctly reports missing *required* fields as
      `MetadataItemValidity.MISSING_FIELD` with a `None` value, and that `include_missing` is a no-op when
@@ -64,9 +64,10 @@ is not comprehensive — call this out and extend it.
 The Brillouin-standard-file spec is prose, not a formal grammar, and some of it is genuinely underspecified. If you
 find yourself having to *invent* an interpretation to make a test assertion concrete — e.g. the spec doesn't say
 what happens when two optional fields that are each individually allowed to be omitted are both present and
-disagree, or it's unclear whether a rule stated for one group applies recursively to a nested one, or two spec
-documents (e.g. the general doc and a `Subtype` doc, or a versioned snapshot and the current doc) appear to
-disagree — do not silently pick the interpretation that seems most reasonable and write a test around it. A test
+disagree, it's unclear whether a rule stated for one group applies recursively to a nested one, the current
+version's un-prefixed spec text contradicts itself in two passages (it can still be edited, so this happens more
+easily than in a frozen version), or the general spec and a `Subtype` doc read differently and it's unclear which
+governs — do not silently pick the interpretation that seems most reasonable and write a test around it. A test
 that encodes a guessed interpretation as if it were confirmed spec behavior is worse than no test, because it will
 look authoritative later.
 
@@ -108,7 +109,7 @@ already in the repo.
 
 - Framework: `pytest`. Test files: `test_*.py` in `tests/`. Group related tests into `Test*` classes with a short
   docstring. Method names: `test_<behavior>`, descriptive enough to read as documentation.
-- Arrange–Act–Assert, one behavior per test. Prefer several small, clearly named tests over one large test with many
+- Arrange-Act-Assert, one behavior per test. Prefer several small, clearly named tests over one large test with many
   unrelated assertions.
 - Always close `File` objects (`f.close()`) and rely on `tmp_path`-based fixtures for cleanup, matching existing
   tests — don't leave stray files/directories behind.
@@ -130,8 +131,9 @@ assertion as a genuine bug, grep the relevant module(s) for `TODO`/`FIXME` comme
 codebase already flags several such gaps explicitly, for example:
 - `file.py` — `File.is_valid()` has a `TODO` noting it doesn't actually validate against the spec yet (it always
   returns `True`); don't report "is_valid() fails to catch structural errors" as a fresh bug.
-- `data.py` — a `TODO` notes that 3D-grid reconstruction isn't extended to non-cartesian scanning cases yet, and
-  separate `TODO`s note that the shape of calibration `index` arrays isn't validated against `PSD` yet.
+- `data.py` — a `TODO` notes that 3D-grid reconstruction isn't extended to non-cartesian scanning cases yet;
+  separate `TODO`s in `data.py` and `calibration.py` note that the shape of calibration `index` arrays isn't
+  validated against `PSD` yet.
 - `validation/main.py` — a `TODO` notes the `Fit_error` group isn't checked yet.
 - `subtypes/single_point_VIPA.py` — a `TODO` notes that spatial-dimension compatibility between `spectral_line` and
   `PSD` isn't checked yet, and another flags an open question ("decide what to do if there are multiple calibration

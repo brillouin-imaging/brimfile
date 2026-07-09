@@ -65,14 +65,22 @@ groups from arrays — older/newer APIs have offered `group_keys()`/`array_keys(
 ## Checking the units convention
 
 The spec attaches units either as a `units` attribute directly on an array, or — for scalar attributes — as a
-sibling `{attribute_name}_units` string attribute at the same level. Verify directly:
+sibling `{attribute_name}_units` string attribute at the same level. How a *scalar* metadata attribute itself is
+represented can be version-specific (e.g. a flattened `Type.Field` key vs. a nested `Metadata` dict — check the
+`brim-file-spec-conformance` skill for which representation applies to the file's declared version); the
+units-sibling convention is what you're confirming here regardless of which representation is in play.
+
+For a flattened-style representation:
 
 ```python
 attrs = dict(data_0.attrs)
-# a scalar attribute with units, e.g. from Metadata local overrides written as flattened Type.Field attrs
 value = attrs.get('Experiment.Temperature')
 units = attrs.get('Experiment.Temperature_units')
 ```
+
+For a nested-`Metadata`-style representation, the same units convention applies one level deeper, e.g.
+`attrs['Metadata']['Experiment'].get('Temperature_units')`. Don't assume one representation without checking which
+the file's declared version actually uses.
 
 ## Checking the `Sparse` flag and related structure independently
 
@@ -81,7 +89,8 @@ sparse = data_0.attrs.get('Sparse', False)   # spec: defaults to False if absent
 if sparse:
     assert 'Cartesian_visualisation' in data_0['Scanning'] or 'Spatial_map' in data_0['Scanning']
 else:
-    assert 'element_size' in data_0.attrs or 'element_size' not in data_0.attrs  # optional-but-recommended; check actual test intent
+    # element_size + element_size_units are required for non-sparse data groups
+    assert 'element_size' in data_0.attrs and 'element_size_units' in data_0.attrs
 ```
 
 Don't hardcode assumptions about which zarr store class is in use (directory store, zip store, remote store via
