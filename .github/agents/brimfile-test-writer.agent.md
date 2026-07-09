@@ -42,22 +42,41 @@ Python API surface. "Comprehensive" specifically means exercising the full cross
    (1D vs 3D), and analysis-result array shapes. Use `create_data_group` and `create_data_group_sparse` symmetrically:
    any test you write for one path should have a sparse (or non-sparse) counterpart unless the behavior is genuinely
    one-sided.
-3. **Metadata inheritance and precedence** — for every metadata `Type` (`Experiment`, `Optics`, `Brillouin`,
-   `Acquisition`, `Spectrometer`) and every field in `brimfile/metadata/schema.py`, test that:
+3. **Metadata inheritance and precedence** — when this axis is crossed with sparse/non-sparse and version (see the
+   note below), use exactly **one representative field per metadata `Type`** rather than every field in
+   `brimfile/metadata/schema.py`. The precedence mechanism itself doesn't depend on which field carries it, so
+   crossing all fields against sparse × version buys nothing and grows the suite combinatorially for no added
+   confidence. Suggested representative fields (all float, all `units_required=True`, so mechanically comparable —
+   swap one out if a better fit emerges, but keep it to one per type): `Experiment.Temperature`, `Optics.Wavelength`,
+   `Brillouin.Scattering_angle`, `Acquisition.Acquisition_time`, `Spectrometer.Resolution`. For each of these, test
+   that:
    - a value defined only globally (on `Brillouin_data`) is visible from a `Data_{n}` group's `Metadata` object,
    - a value defined only locally (`local=True`, on the `Data_{n}` group) is visible,
    - a value defined at **both** levels resolves to the local one (precedence), for both the raw dict path
      (`to_dict`/`to_dict_async`) and the single-item path (`__getitem__` / `_get_single_item`),
-   - required vs. optional fields, `units_required` fields (present/missing units), enum-typed fields (valid value,
-     invalid value), and unknown-field handling (typo suggestion vs. accepted normalization) are all covered — see
-     `test_metadata.py::TestMetadataValidationIntegration` for the existing pattern to extend, not duplicate,
-   - `to_dict(..., validate=True, include_missing=True)` correctly reports missing *required* fields as
-     `MetadataItemValidity.MISSING_FIELD` with a `None` value, and that `include_missing` is a no-op when
-     `validate=False`.
+   - calling `Metadata.add(...)` again with the **same** key (same type, same `local` flag) **overwrites** the
+     previous value (and units, if provided) — not an error, not a duplicate,
+   - calling `Metadata.add(...)` with a **different** key does **not** delete or clear other already-added fields.
+     Check this for: a different field of the same type, a field of a *different* type (general metadata stores all
+     types together in one nested `Metadata` attribute — see `Metadata._load_general_metadata`/`add` — so a bug here
+     could silently wipe an unrelated type), and separately for `local=True` and `local=False` (the two paths use
+     different on-disk representations — flattened per-attribute keys vs. one nested dict — so a bug in one doesn't
+     imply a bug in the other). Verify at least one of these directly against the raw zarr attrs via the
+     `zarr-file-inspection` skill, not only through `to_dict`/`__getitem__`, per "Independent verification" below.
 
-Treat these three axes as independent dimensions to combine with `pytest.mark.parametrize`, not as three separate
-test files. A new fixture or data variant that only varies one axis while silently assuming defaults on the other two
-is not comprehensive — call this out and extend it.
+   Separately, and **without** crossing it against sparse/non-sparse or version (schema validation is a pure
+   function of type/field/value and doesn't depend on either), exhaustively cover every field's schema rules:
+   required vs. optional, `units_required` fields (present/missing units), enum-typed fields (valid value, invalid
+   value), and unknown-field handling (typo suggestion vs. accepted normalization) — see
+   `test_metadata.py::TestMetadataValidationIntegration` for the existing pattern to extend, not duplicate. Also
+   confirm `to_dict(..., validate=True, include_missing=True)` correctly reports missing *required* fields as
+   `MetadataItemValidity.MISSING_FIELD` with a `None` value, and that `include_missing` is a no-op when
+   `validate=False`.
+
+Treat version, sparse/non-sparse, and metadata precedence as independent dimensions to combine with
+`pytest.mark.parametrize` — using the one representative field per type for the metadata axis, not the full field
+set, or the matrix grows exponentially for no added confidence. A new fixture or data variant that only varies one
+axis while silently assuming defaults on the other two is not comprehensive — call this out and extend it.
 
 ## When the spec is ambiguous, stop and ask
 
