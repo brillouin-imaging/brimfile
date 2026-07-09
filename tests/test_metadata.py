@@ -55,6 +55,20 @@ SCHEMA_FIELDS = [
     for md_type, field_name in _REPRESENTATIVE_FIELD_BY_TYPE.items()
 ]
 
+UNITS_REQUIRED_FIELDS = [
+    (md_type, field)
+    for md_type, fields in METADATA_SCHEMA.items()
+    for field in fields
+    if field.units_required
+]
+
+ENUM_FIELDS = [
+    (md_type, field)
+    for md_type, fields in METADATA_SCHEMA.items()
+    for field in fields
+    if field.enum_type is not None
+]
+
 
 class TestMetadataItem:
     """Tests for Metadata.Item class."""
@@ -493,7 +507,12 @@ class TestMetadataValidationIntegration:
 
 
 class TestMetadataInheritanceMatrix:
-    """Coverage for global/local/both metadata visibility and precedence."""
+    """Coverage for global/local/both metadata visibility and precedence.
+
+    spec clauses (pinned):
+    - https://github.com/brillouin-imaging/Brillouin-standard-file/blob/2bb6187fe3ff40194f011d43b51b1bd3887244ed/docs/brim_file_specs.md#L106
+    - https://github.com/brillouin-imaging/Brillouin-standard-file/blob/2bb6187fe3ff40194f011d43b51b1bd3887244ed/docs/brim_file_metadata.md#L10
+    """
 
     @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
     @pytest.mark.parametrize('md_type, field', SCHEMA_FIELDS)
@@ -552,5 +571,92 @@ class TestMetadataInheritanceMatrix:
         else:
             assert item.value == local_value
             assert item.units == local_units
+
+        f.close()
+
+
+class TestMetadataSchemaValidationAcrossLayouts:
+    """Validation checks for units-required and enum fields across storage layouts."""
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', UNITS_REQUIRED_FIELDS)
+    @pytest.mark.parametrize('local', [False, True])
+    def test_units_required_fields_accept_valid_units(self, request, file_fixture_name, md_type, field, local):
+        """Units-required fields should accept valid values in both global and local scopes."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        value, units = _sample_value_for_field(field, seed=31)
+        md.add(
+            md_type,
+            {field.name: brim.Metadata.Item(value, units)},
+            local=local,
+        )
+
+        out = md[f'{md_type.value}.{field.name}']
+        assert out.value == value
+        assert out.units == units
+        f.close()
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', UNITS_REQUIRED_FIELDS)
+    @pytest.mark.parametrize('local', [False, True])
+    def test_units_required_fields_reject_missing_units(self, request, file_fixture_name, md_type, field, local):
+        """Units-required fields should reject values without units in all scopes/layouts."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        value, _ = _sample_value_for_field(field, seed=44)
+        with pytest.raises(ValueError, match='requires units'):
+            md.add(
+                md_type,
+                {field.name: brim.Metadata.Item(value)},
+                local=local,
+            )
+
+        f.close()
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', ENUM_FIELDS)
+    @pytest.mark.parametrize('local', [False, True])
+    def test_enum_fields_accept_valid_values(self, request, file_fixture_name, md_type, field, local):
+        """Enum fields should accept valid enum members in both local and global metadata."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        valid_value = list(field.enum_type)[0].value
+        md.add(
+            md_type,
+            {field.name: brim.Metadata.Item(valid_value)},
+            local=local,
+        )
+
+        out = md[f'{md_type.value}.{field.name}']
+        assert out.value == valid_value
+        assert out.units is None
+        f.close()
+
+    @pytest.mark.parametrize('file_fixture_name', ['simple_brim_file', 'simple_brim_file_sparse'])
+    @pytest.mark.parametrize('md_type, field', ENUM_FIELDS)
+    @pytest.mark.parametrize('local', [False, True])
+    def test_enum_fields_reject_invalid_values(self, request, file_fixture_name, md_type, field, local):
+        """Enum fields should reject invalid strings in both local and global metadata."""
+        filename = request.getfixturevalue(file_fixture_name)
+        f = brim.File(filename, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        with pytest.raises(ValueError):
+            md.add(
+                md_type,
+                {field.name: brim.Metadata.Item('__invalid_enum_value__')},
+                local=local,
+            )
 
         f.close()

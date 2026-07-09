@@ -1,7 +1,16 @@
 """Unit tests for validation rules in brimfile.validation.main.
 
-The assertions in this file are derived from the BRIM specification:
-https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md
+The assertions in this file are derived from the BRIM specification at a pinned
+commit for stable traceability:
+- https://github.com/brillouin-imaging/Brillouin-standard-file/blob/2bb6187fe3ff40194f011d43b51b1bd3887244ed/docs/brim_file_specs.md
+- https://github.com/brillouin-imaging/Brillouin-standard-file/blob/2bb6187fe3ff40194f011d43b51b1bd3887244ed/docs/brim_file_metadata.md
+
+Clause links used in this module:
+- root brim_version requirement: .../brim_file_specs.md#L94
+- Data/Frequency broadcasting: .../brim_file_specs.md#L117
+- Sparse scanning constraints: .../brim_file_specs.md#L119
+- Data-level metadata override and _arrays: .../brim_file_specs.md#L106
+- metadata scopes/override semantics: .../brim_file_metadata.md#L10
 """
 
 import json
@@ -75,6 +84,7 @@ def _sparse_data_group(*, psd_shape=(50, 151), frequency_shape=(151,), scanning=
 
 
 def _errors_matching(errors, *, err_type=None, level=None, path_contains=None):
+    """Return the subset of errors matching the given filters."""
     matches = []
     for err in errors:
         if err_type is not None and err.type != err_type:
@@ -96,6 +106,7 @@ def test_validate_data_group_accepts_minimal_non_sparse_layout():
 
 
 def test_validate_data_group_accepts_frequency_broadcasting():
+    # spec clause: pinned docs/brim_file_specs.md#L117
     node = _non_sparse_data_group(psd_shape=(2, 3, 4, 151), frequency_shape=(1, 1, 1, 151))
 
     errors = validate_data_group(node, path="Brillouin_data/Data_0")
@@ -123,6 +134,7 @@ def test_validate_data_group_rejects_non_broadcastable_frequency_shape():
 
 
 def test_validate_data_group_requires_scanning_group_for_sparse_data():
+    # spec clause: pinned docs/brim_file_specs.md#L119-L120
     node = _group(
         attributes={"Sparse": True},
         PSD=_array((50, 151)),
@@ -214,6 +226,8 @@ def test_spec_allows_analysis_spatial_shape_when_psd_has_extra_parameter_axes():
         err_type=ValidationType.INVALID_SHAPE,
         path_contains="Shift_AS_0",
     )
+
+    # TODO: decide if the specs should allow analysis arrays to match only the spatial dimensions of PSD (i.e. without additional parameter axes).
     assert shape_errors == []
 
 
@@ -394,6 +408,7 @@ def test_validate_root_attrs_warns_on_unknown_feature_for_singlepoint_subtype():
 
 @pytest.mark.parametrize('brim_version', SUPPORTED_VERSIONS)
 def test_validate_root_attrs_accepts_all_supported_versions(brim_version):
+    # spec clause: pinned docs/brim_file_specs.md#L94
     attrs = {
         "brim_version": brim_version,
     }
@@ -463,6 +478,7 @@ def test_validate_data_group_v0_2_rejects_flattened_metadata_overrides():
 
 
 def test_validate_data_group_v0_2_accepts_nested_metadata_override_and_arrays_group():
+    # spec clauses: pinned docs/brim_file_specs.md#L106-L108 and docs/brim_file_metadata.md#L10-L18
     node = _non_sparse_data_group()
     node["attributes"]["Metadata"] = {
         "Experiment": {

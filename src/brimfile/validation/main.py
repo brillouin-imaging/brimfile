@@ -749,6 +749,7 @@ def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=No
                             message=f"The '{qt}' array in the analysis group '{path}' must have a numeric dtype, found '{qt_dtype}'."
                         ))
                     if qt_shape is not None and PSD_shape is not None:
+                        # TODO: Should the analysis arrays be allowed to match only the spatial dimensions of PSD (i.e. without additional parameters)?
                         if qt_shape != PSD_shape[:-1]:
                             errs.append(ValidationError(
                                 level=ValidationLevel.CRITICAL,
