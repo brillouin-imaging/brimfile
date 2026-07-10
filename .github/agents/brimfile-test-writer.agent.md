@@ -138,7 +138,9 @@ already in the repo.
   vs `.ERROR` vs `.CRITICAL`) via `File.validate()` / `brimfile.validation.validate_json`.
 - When a test's purpose is to confirm spec compliance, reference the specific spec section in a comment or docstring
   (e.g. `# spec: brim_file_specs.md § '/Data_{n}/Scanning/Cartesian_visualisation'`) so the test remains traceable to
-  the spec clause it enforces if the spec is amended later.
+  the spec clause it enforces if the spec is amended later. If the reference includes an actual link into the spec
+  repo rather than just a filename, pin it to a commit SHA, not a branch — see the `brim-file-spec-conformance`
+  skill's "Pin spec links to a commit, not a branch" section.
 - After writing or editing tests, run them (`pytest tests/ -v`, or the narrower target you touched) and report
   results; don't hand back untested test code.
 

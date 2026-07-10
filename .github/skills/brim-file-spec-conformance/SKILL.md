@@ -140,6 +140,29 @@ implementation:
 5. Where the assertion concerns literal on-disk structure rather than an API return value, pair this skill with the
    `zarr-file-inspection` skill to verify at the zarr level too.
 
+## Pin spec links to a commit, not a branch
+
+Whenever a code comment, test docstring, or PR/commit description includes an actual **link** into the
+Brillouin-standard-file repo (as opposed to just naming a file, e.g. "`brim_file_specs.md` § ..."), pin it to a
+specific commit SHA rather than `main` or any other branch name, e.g.
+`https://github.com/brillouin-imaging/Brillouin-standard-file/blob/<full-sha>/docs/brim_file_specs.md` instead of
+`.../blob/main/docs/brim_file_specs.md`. This matters more than it might seem: the current (un-prefixed) version's
+spec text is explicitly still editable (see "Where to look" above), so a branch link can silently start pointing at
+different wording later, quietly turning a correct citation into a wrong one with no visible change at the citing
+line. A commit-pinned link keeps pointing at exactly the text that was true when the comment was written, permanently
+— including for a frozen `docs/v{X.Y}/` file, where pinning is just good hygiene even though the content itself
+isn't expected to change.
+
+To get the SHA: use the commit at the tip of the branch you just read from (e.g. `git ls-remote
+https://github.com/brillouin-imaging/Brillouin-standard-file main`, or a local clone's `HEAD`), or, for a citation
+that should point at exactly when the cited wording was introduced, the specific commit that last touched that file
+(`git log -1 --format=%H -- docs/brim_file_specs.md` in a local clone, or GitHub's commits-by-path API). Where it
+adds precision, include a line-range anchor too (GitHub's `#L34-L40` URL suffix, or the "y" keyboard shortcut on a
+GitHub file page to get a permalink for the currently selected lines) so the citation points at the exact passage,
+not just the file. If a full SHA in every individual comment would be too noisy (e.g. many small `# spec: ...`
+comments through a test file), pin once — a single commit-linked reference near the top of the file or module
+docstring — and let individual comments reference section names against that shared, already-pinned citation.
+
 ## Using this skill for validator implementation work (not just tests)
 
 When the task is extending `src/brimfile/validation/` itself (rather than writing tests against it), apply the
