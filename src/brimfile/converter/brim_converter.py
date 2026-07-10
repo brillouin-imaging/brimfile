@@ -13,7 +13,9 @@ BRILLOUIN_TYPE_MAPPING = { # mapping initial collection of dataset names from Ca
 
 class BrimConverter:
     """ 
-    As described on the tin. Converts between brim file format (and nominally brimX).
+    Convert datasets between brim and brimX/HDF5 layouts.
+
+    This utility is experimental and primarily intended for migration workflows.
     """
     def __init__(self, filename_from, filename_to, mode='brim2brimX', stop_at=None, map_to='cartesian'):
         if mode not in ['brim2brimX', 'brimX2brim']:
@@ -26,6 +28,15 @@ class BrimConverter:
         self.map_to = map_to # for brim to brimX, allows brimX to be stored in cartesian shapes or flat
 
     def convert(self):
+        """
+        Execute the configured conversion workflow.
+
+        Runs either brim-to-brimX or brimX-to-brim conversion based on `mode`,
+        then closes both input and output handles.
+
+        Raises:
+            ValueError: If the configured mode is unsupported.
+        """
         # toggle between the two conversion modes
         if self.mode == 'brim2brimX':
             self.f_from = File(self.filename_from)

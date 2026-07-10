@@ -13,6 +13,14 @@ import asyncio
 
 
 class Metadata:
+    """
+    Read, merge, validate, and write brim metadata.
+
+    A `Metadata` instance can be bound to a specific data group (local metadata)
+    or to the file root (general metadata only). When reading values, local
+    metadata takes precedence over general metadata for the same field.
+    """
+
     Item = MetadataItem
     Type = schema.Type
 
@@ -199,8 +207,16 @@ class Metadata:
     def __getitem__(self, key: str) -> Item:
         """
         Get the metadata for a specific key.
+
         Args:
             key (str): The key for the metadata. It has the format 'group.object', e.g. 'Experiment.Datetime'.
+
+        Returns:
+            Item: The metadata value and optional units.
+
+        Raises:
+            KeyError: If the key format is invalid, the metadata group is invalid,
+                or the requested field is not available.
         """
         parts = key.split('.', 1)
         if len(parts) != 2:

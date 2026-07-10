@@ -19,6 +19,15 @@ if TYPE_CHECKING:
 _STANDARD_ATTRIBUTES = ['Datetime', 'Description', 'Temperature', 'FSR']
 
 class Calibration:
+    """
+    Access calibration spectra and shift metadata for a data group.
+
+    A calibration group may contain one or more calibration materials. Each
+    material stores spectra and a reference shift (typically in GHz), and may
+    optionally include an index mapping from image coordinates to calibration
+    spectra.
+    """
+
     def __init__(self, file: FileAbstraction, full_path: str, *, 
                  data_group: Data, _initialize: bool = True):
         """
@@ -90,6 +99,11 @@ class Calibration:
             tuple: ``(spectrum, shift)``, where ``spectrum`` is a 1D NumPy array and
             ``shift`` is a :class:`MetadataItem` containing the material shift value
             and its units.
+
+        Raises:
+            ValueError: If `coor` does not contain three coordinates, or if the
+                selected spectrum/shift cannot be retrieved.
+            IndexError: If calibration material `m` does not exist.
         """
         if len(coor) != 3:
             raise ValueError("coor must contain 3 values for z, y, x")

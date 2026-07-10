@@ -309,11 +309,13 @@ class Data:
 
     def _get_spectrum(self, index: int | tuple[int, int, int]) -> tuple:
         """
-        Synchronous wrapper for `_get_spectrum_async` (see doc for `brimfile.data.Data._get_spectrum_async`)
+        Synchronous wrapper for `_get_spectrum_async`.
         """
         return sync(self._get_spectrum_async(index))
     async def _get_spectrum_async(self, index: int | tuple[int, int, int]) -> tuple:
         """
+        @public
+
         Retrieve a spectrum from the data group by its index or coordinates.
 
         Args:
@@ -392,7 +394,13 @@ class Data:
             coor (tuple): A tuple containing the z, y, x coordinates of the spectrum to retrieve.
 
         Returns:
-            tuple: A tuple containing the PSD, frequency, PSD_units, frequency_units for the specified coordinates. See `Data._get_spectrum_async` for details.
+            tuple: A tuple containing the PSD, frequency, PSD_units, and
+            frequency_units for the specified coordinates. See
+            `brimfile.data.Data._get_spectrum_async` for details.
+
+        Raises:
+            ValueError: If `coor` does not contain three coordinates `(z, y, x)`.
+            IndexError: If coordinates map outside the available data.
         """
         if len(coor) != 3:
             raise ValueError("coor must contain 3 values for z, y, x")
@@ -690,6 +698,8 @@ class Data:
     def _add_data(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, freq_units='GHz',
                 compression: FileAbstraction.Compression = FileAbstraction.Compression()):
         """
+        @public
+
         Add data to the current data group.
 
         This method adds the provided PSD, frequency, and scanning data to the HDF5 group 

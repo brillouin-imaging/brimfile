@@ -2,7 +2,7 @@
 ## What is brimfile?
 
 *brimfile* is a Python library to read from and write to brim (**Br**illouin **im**aging) files,
-which contain both the spectra and analysed data for Brillouin imaging.
+which contain both the spectra and analyzed data for Brillouin imaging.
 More information about the brim file format can be found [here](https://github.com/brillouin-imaging/Brillouin-standard-file).
 
 Briefly, a brim file can contain multiple data groups,
@@ -30,7 +30,7 @@ After activating the new environment, simply run:
 pip install brimfile
 ```
 
-If you also need the support for exporting the analyzed data to OME-TIFF files,
+If you also need support for exporting the analyzed data to OME-TIFF files,
 you can install the optional dependencies with:
 
 ```bash
@@ -83,7 +83,7 @@ f.close()
 ## Store types
 
 Currently brimfile supports zip, zarr and S3 buckets as a store.
-When opening or creating a file, the storage be selected by using the brimfile.file_abstraction.StoreType enum; zip and zarr can be used both for reading and writing while S3 only for reading. 
+When opening or creating a file, the storage can be selected by using the brimfile.file_abstraction.StoreType enum; zip and zarr can be used both for reading and writing while S3 only for reading.
 
 Although it is possible to write directly to zip, this will create duplicated entries in the archive (see [GitHub issue](https://github.com/zarr-developers/zarr-python/issues/1695)).
 
@@ -130,7 +130,7 @@ data = f.create_data_group(PSD, freq_GHz, (dz, dy, dx), name='my_data_group')
 Alternatively you can use `brimfile.file.File.create_data_group_sparse` for sparse data, which lets you directly assign the correspondence
 between the spatial positions and the spectra through the `scanning` dictionary.
 
-Once you have an istance of `brimfile.data.Data`, you can get the spectrum corresponding to a pixel in the image
+Once you have an instance of `brimfile.data.Data`, you can get the spectrum corresponding to a pixel in the image
 by calling the `brimfile.data.Data.get_spectrum_in_image` method:
 ```Python
 PSD, frequency, PSD_units, frequency_units = data.get_spectrum_in_image((pz,py,px))    
@@ -147,11 +147,11 @@ The list of available metadata is defined [here](https://github.com/brillouin-im
 ```Python
 brim.metadata.print_schema(include_description=True)
 ```
-For metadata fields which require an enum, it can be imported from `brimfile.metadata`, e.g. `from brimfile.metadata import ImmersionMedium`.
+For metadata fields which require an enum, enums can be imported from `brimfile.metadata`, e.g. `from brimfile.metadata import ImmersionMedium`.
 
 New metadata can be added to the current data group (or to the whole file) by calling the `brimfile.metadata.main.Metadata.add` method.
 ```Python
-import datetime
+from datetime import datetime
 
 Attr = Metadata.Item
 datetime_now = datetime.now().isoformat()

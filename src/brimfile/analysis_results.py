@@ -367,6 +367,10 @@ class AnalysisResults:
             The image is a 3D dataset where the dimensions are z, y, x.
             If there are additional parameters, more dimensions are added in the order z, y, x, par1, par2, ...
             The pixel size is a tuple of 3 Metadata.Item in the order z, y, x.
+
+        Raises:
+            ValueError: If `pt=PeakType.average` is requested but no compatible
+                peaks are available for the selected index.
         """
         if qt == AnalysisResults.Quantity.Elastic_contrast:
             shift_img, px_size = self.get_image(AnalysisResults.Quantity.Shift, pt, index)

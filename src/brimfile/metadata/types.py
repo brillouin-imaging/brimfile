@@ -11,6 +11,8 @@ JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"] |
 MetadataValue: TypeAlias = JSONValue
 
 class MetadataItemValidity(Enum):
+    """Validation status assigned to a `MetadataItem`."""
+
     NOT_CHECKED = 'not checked' # Validity has not been checked for this item
     VALID = 'valid'
     LIKELY_TYPO = 'likely typo' # The value is not valid but there are close matches that suggest it might be a typo
@@ -21,6 +23,13 @@ class MetadataItemValidity(Enum):
     INVALID_VALUE = 'invalid value' # The value is not valid for the field
 
 class MetadataItem:
+    """
+    Container for one metadata value, optional units, and validation status.
+
+    `value` stores the metadata payload, while `units` stores its units string
+    when applicable (for example `'GHz'`, `'nm'`, or `'C'`).
+    """
+
     # units should be a str. If None, no units is defined
     def __init__(self, value: MetadataValue , units: str | None = None, *,
                  validity: MetadataItemValidity | None = None):
@@ -35,6 +44,13 @@ class MetadataItem:
             self.validity = validity
 
     def get_validity(self) -> MetadataItemValidity:
+        """
+        Return the current validity flag.
+
+        Returns:
+            MetadataItemValidity: Stored validity if available, otherwise
+                `MetadataItemValidity.NOT_CHECKED`.
+        """
         if hasattr(self, 'validity'):
             return self.validity 
         else:

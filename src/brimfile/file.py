@@ -21,7 +21,11 @@ if "pyodide" not in sys.modules:
 
 class File:
     """
-    Represents a brim file with Brillouin data, extending h5py.File.
+    High-level entry point for reading and writing brim files.
+
+    Use this class to open an existing brim file (`File(...)`) or create a new
+    one (`File.create(...)`), then access data groups, metadata, analysis
+    results, and validation helpers.
     """
 
     if "pyodide" in sys.modules:
@@ -121,9 +125,16 @@ class File:
             warnings.warn(f"Cannot close the file: {e}")
 
     def close(self) -> None:
+        """Close the underlying store and release file resources."""
         self._file.close()
 
     def is_read_only(self) -> bool:
+        """
+        Return whether the file was opened in read-only mode.
+
+        Returns:
+            bool: ``True`` when write operations are not allowed.
+        """
         return sync(self._file.is_read_only())
 
     def is_valid(self) -> bool:
@@ -225,7 +236,8 @@ class File:
             PSD (np.ndarray): The Power Spectral Density (PSD) data to be added. The last dimension contains the spectra.
             frequency (np.ndarray): The frequency data corresponding to the PSD. Must be broadcastable to the PSD array.
             scanning (dict, optional): Spatial mapping metadata. Required for sparse=True, optional for sparse=False.
-                See `brimfile.data.Data._add_data` docstring for detailed structure.
+                For sparse data, include either `Spatial_map` or `Cartesian_visualisation`.
+                See `brimfile.data.Data._add_data` for the full accepted structure.
             px_size_um (tuple, optional): A tuple of 3 elements (z, y, x) for pixel size in μm. For non-sparse data only.
             sparse (bool): Whether the data is sparse. See https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md for details. Defaults to False.
             index (int, optional): The index for the new data group. If None, the next available index is used. Defaults to None.

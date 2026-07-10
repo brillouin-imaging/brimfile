@@ -29,6 +29,8 @@ class MetadataField:
 
 
 class Type(Enum):
+    """Top-level metadata sections defined by the brim schema."""
+
     Experiment = 'Experiment'
     Optics = 'Optics'
     Brillouin = 'Brillouin'
@@ -37,6 +39,8 @@ class Type(Enum):
 
 
 class ImmersionMedium(MetadataEnum):
+    """Allowed values for `Optics.Immersion_medium`."""
+
     other = 'other'
     air = 'air'
     water = 'water'
@@ -44,6 +48,8 @@ class ImmersionMedium(MetadataEnum):
 
 
 class SignalType(MetadataEnum):
+    """Allowed values for `Brillouin.Signal_type`."""
+
     other = 'other'
     spontaneous = 'spontaneous'
     stimulated = 'stimulated'
@@ -51,6 +57,8 @@ class SignalType(MetadataEnum):
 
 
 class PhononsMeasured(MetadataEnum):
+    """Allowed values for `Brillouin.Phonons_measured`."""
+
     other = 'other'
     longitudinal = 'longitudinal-like'
     transverse = 'transverse-like'
@@ -58,6 +66,8 @@ class PhononsMeasured(MetadataEnum):
 
 
 class PolarizationProbedAnalyzed(MetadataEnum):
+    """Allowed values for `Brillouin.Polarization_probed_analyzed`."""
+
     other = 'other'
     VH = 'VH'
     HV = 'HV'
@@ -68,6 +78,8 @@ class PolarizationProbedAnalyzed(MetadataEnum):
 
 
 class ScanningStrategy(MetadataEnum):
+    """Allowed values for `Acquisition.Scanning_strategy`."""
+
     other = 'other'
     point_scanning = 'point_scanning'
     line_scanning = 'line_scanning'
@@ -76,6 +88,8 @@ class ScanningStrategy(MetadataEnum):
 
 
 class SpectrometerType(MetadataEnum):
+    """Allowed values for `Spectrometer.Type`."""
+
     other = 'other'
     VIPA = 'VIPA'
     FP = 'Fabry_Perot'
@@ -86,6 +100,8 @@ class SpectrometerType(MetadataEnum):
 
 
 class DetectorType(MetadataEnum):
+    """Allowed values for `Spectrometer.Detector_type`."""
+
     other = 'other'
     EMCCD = 'EMCCD'
     CCD = 'CCD'
