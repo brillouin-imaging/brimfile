@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from .file_abstraction import FileAbstraction, sync
 
-__docformat__ = "google"
-
 
 async def of_object(file: FileAbstraction, obj) -> str:
     """

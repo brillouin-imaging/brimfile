@@ -3,8 +3,6 @@ from __future__ import annotations
 from enum import Enum
 from dataclasses import dataclass
 
-__docformat__ = "google"
-
 class SubType(Enum):
     """
     Enumeration of supported Brimfile subtypes.

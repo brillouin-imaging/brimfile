@@ -19,8 +19,6 @@ import sys
 if "pyodide" not in sys.modules:
     from .file_abstraction import _AbstractFile
 
-__docformat__ = "google"
-
 class File:
     """
     Represents a brim file with Brillouin data, extending h5py.File.

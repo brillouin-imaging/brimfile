@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     # import here to avoid circular imports
     from .data import Data
 
-__docformat__ = "google"
 
 class AnalysisResults:
     """

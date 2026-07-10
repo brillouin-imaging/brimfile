@@ -1,5 +1,3 @@
-__docformat__ = "google"
-
 reserved_attr_names = ('Units', 'Name')
 
 

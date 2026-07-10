@@ -11,8 +11,6 @@ import warnings
 
 import asyncio
 
-__docformat__ = "google"
-
 
 class Metadata:
     Item = MetadataItem

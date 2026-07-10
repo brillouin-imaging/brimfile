@@ -9,8 +9,6 @@ if TYPE_CHECKING:
 
 from .file_abstraction import FileAbstraction, sync
 
-__docformat__ = "google"
-
 
 def concatenate_paths(*paths):
     """

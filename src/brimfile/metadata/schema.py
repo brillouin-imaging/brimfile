@@ -3,8 +3,6 @@ from dataclasses import dataclass
 import textwrap
 import shutil
 
-__docformat__ = "google"
-
 
 class MetadataEnum(str, Enum):
     """Base enum type for metadata fields that have controlled vocabularies."""

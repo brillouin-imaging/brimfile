@@ -9,7 +9,6 @@ import asyncio
 from typing import TypeAlias
 Version: TypeAlias = tuple[int, int, int] | None
 
-__docformat__ = "google"
 
 class FileAbstraction(ABC):
     """

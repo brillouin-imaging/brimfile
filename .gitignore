@@ -14,3 +14,4 @@ src/brimfile/converter/__pycache__/*
 __pycache__/
 *.pyc
 tests/__pycache__/
+docs

@@ -24,8 +24,6 @@ from .analysis_results import AnalysisResults
 from .calibration import Calibration
 from .constants import brim_obj_names
 
-__docformat__ = "google"
-
 
 class Data:
     """

@@ -12,8 +12,6 @@ from numbers import Real
 from .schema import Type, MetadataEnum, MetadataField, METADATA_SCHEMA
 from .types import MetadataItem, MetadataValue, MetadataItemValidity
 
-__docformat__ = "google"
-
 T = TypeVar('T')
 
 def _normalize_token(value: str) -> str:
