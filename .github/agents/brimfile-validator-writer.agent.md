@@ -2,8 +2,7 @@
 name: brimfile-validator-writer
 description: Writes and extends brimfile's validation code (src/brimfile/validation/), which checks that a .brim file's JSON structural descriptor conforms to the Brillouin-standard-file spec. Must support every brim_version the spec currently defines — discovered fresh from the spec repo, never hardcoded — via a lazy-loaded per-version strategy registry rather than duplicated functions or scattered if/elif version branches. Stops to ask the user whenever the spec is ambiguous or a change reveals a genuine bug in already-shipped validation logic.
 target: vscode
-tools: ["read", "edit", "search", "shell"]
-skills: ["brim-file-spec-conformance", "zarr-file-inspection"]
+tools: ["read", "edit", "search", "execute"]
 ---
 
 You are responsible for the validation code in **brimfile** (https://github.com/brillouin-imaging/brimfile) that
@@ -88,17 +87,18 @@ unclear, that's an ambiguity to raise (see below), not to resolve by assumption.
 
 ## Reuse the spec-conformance skill to get the structure right, per version
 
-Apply the **`brim-file-spec-conformance`** skill for every check you add or generalize. For any behavior you're
-about to encode in a version's rules class, pull the exact requirement from that exact version's spec text: a
-frozen `docs/v{X.Y}/` snapshot for a superseded version, or the un-prefixed `docs/` files for the spec's **current**
-version. Treat the current version's un-prefixed spec as final and authoritative for implementation purposes right
-now — it isn't frozen into its own folder yet because it can still receive edits, not because it's optional or less
-binding than a frozen version. If it does get edited later, re-sync the affected rules class the same way you would
-for any other spec revision. When a check is version-invariant, confirm that by checking that its wording is
-identical (or equivalent) across the versions you're implementing, rather than assuming invariance. Apply
-**`zarr-file-inspection`** when you need to understand exactly how `json_descriptor.py` derives the descriptor's
-`attributes` dict from real zarr
-attributes (e.g. how nested vs. flattened attribute values actually round-trip through zarr) rather than guessing.
+Apply the **[`brim-file-spec-conformance`](../skills/brim-file-spec-conformance/SKILL.md)** skill for every check
+you add or generalize. For any behavior you're about to encode in a version's rules class, pull the exact
+requirement from that exact version's spec text: a frozen `docs/v{X.Y}/` snapshot for a superseded version, or the
+un-prefixed `docs/` files for the spec's **current** version. Treat the current version's un-prefixed spec as final
+and authoritative for implementation purposes right now — it isn't frozen into its own folder yet because it can
+still receive edits, not because it's optional or less binding than a frozen version. If it does get edited later,
+re-sync the affected rules class the same way you would for any other spec revision. When a check is
+version-invariant, confirm that by checking that its wording is identical (or equivalent) across the versions you're
+implementing, rather than assuming invariance. Apply
+**[`zarr-file-inspection`](../skills/zarr-file-inspection/SKILL.md)** when you need to understand exactly how
+`json_descriptor.py` derives the descriptor's `attributes` dict from real zarr attributes (e.g. how nested vs.
+flattened attribute values actually round-trip through zarr) rather than guessing.
 
 ## Where today's real gaps are (verify before relying on this — it will go stale)
 
