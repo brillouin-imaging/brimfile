@@ -1,0 +1,44 @@
+{% extends "default/module.html.jinja2" %}
+
+{#
+  Include the brimfile version in the <title> of every generated page
+  (e.g. "brimfile v1.5.1" instead of the default "brimfile API documentation").
+
+  The version is read from the BRIMFILE_VERSION environment variable, which
+  the docs workflow sets before invoking pdoc. See:
+  https://pdoc.dev/docs/pdoc.html#pass-arguments-to-the-jinja2-template
+#}
+{% block title %}
+{%- set version = env["BRIMFILE_VERSION"] | default("", true) -%}
+{%- if version -%}
+{{ module.modulename }} {{ version }}
+{%- else -%}
+{{ module.modulename }} API documentation
+{%- endif -%}
+{% endblock %}
+
+{#
+  Also show the version in the visible <h1> heading at the top of each page.
+  This re-implements pdoc's default `module_name` macro (see module.html.jinja2
+  in pdoc itself) and appends the version after the module name.
+#}
+{% macro module_name() %}
+    <h1 class="modulename">
+        {% set parts = module.modulename.split(".") %}
+        {% for part in parts %}
+            {%- set fullname = ".".join(parts[:loop.index]) -%}
+            {%- if fullname in all_modules and fullname != module.modulename -%}
+                <a href="./{{ "../" * loop.revindex0 }}{{ part }}.html">{{ part }}</a>
+            {%- else -%}
+                {{ part }}
+            {%- endif -%}
+            {%- if loop.nextitem -%}
+                <wbr>.
+            {%- endif -%}
+        {% endfor %}
+        {%- set version = env["BRIMFILE_VERSION"] | default("", true) -%}
+        {%- if version %}
+            <small class="version" style="font-size: 0.55em; font-weight: normal; opacity: 0.7; margin-left: 0.4em;">{{ version }}</small>
+        {%- endif -%}
+    </h1>
+{% endmacro %}
