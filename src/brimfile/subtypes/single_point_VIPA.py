@@ -347,9 +347,7 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
     if len(coor) != 3:
             raise ValueError("coor must contain 3 values for z, y, x")
 
-    index = coor
-    if data_group._sparse:
-        index = (int(data_group._spatial_map[coor]),)
+    index = data_group._get_spatial_index_from_coor(coor)
     
     rawdata_arr = await data_group._file.open_dataset(concatenate_paths(data_group._path, brim_obj_names.data.raw_data, '2DArray_per_spectrum'))
     raw_spectrum_coro = _async_getitem(rawdata_arr, index +(...,))

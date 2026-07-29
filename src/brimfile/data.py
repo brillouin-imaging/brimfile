@@ -226,6 +226,25 @@ class Data:
 
         return cv, px_size
 
+    def _get_spatial_index_from_coor(self, coor: tuple) -> tuple:
+        """
+        Retrieve the spatial index for a given spatial coordinate.
+
+        Args:
+            coor (tuple): Spatial coordinate as ``(z, y, x)``.
+        Raises: 
+            ValueError: If `coor` does not contain three coordinates
+        Returns:
+            tuple: The spatial index corresponding to the given coordinate.
+                It is always a tuple containing 1 or 3 integers, depending on whether the data is sparse or not.
+        """
+        if len(coor) != 3:
+            raise ValueError("coor must contain 3 values for z, y, x")
+        index = coor
+        if self._sparse:
+            index = (int(self._spatial_map[coor]),)
+        return index
+
     def get_PSD(self) -> tuple:
         """
         LOW LEVEL FUNCTION
