@@ -13,7 +13,7 @@ import asyncio
 from .constants import SubType
 from .utils import _check_or_create_subtype, _check_or_create_subtype_feature
 
-from .. import Data, Calibration, AnalysisResults
+from .. import Data, Calibration, AnalysisResults, Calibration
 from ..constants import brim_obj_names
 from ..utils import concatenate_paths, _determine_chunk_size
 from ..file_abstraction import sync, FileAbstraction, _async_getitem
@@ -373,6 +373,56 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
 def get_raw_spectrum_in_image(data_group: Data, coor: tuple, *,
                                analysis_results: AnalysisResults = None) -> tuple:
     """
-    Synchronous wrapper for get_raw_spectrum_in_image_async.
+    Synchronous wrapper for `get_raw_spectrum_in_image_async`.
     """
     return sync(get_raw_spectrum_in_image_async(data_group, coor, analysis_results=analysis_results))
+
+async def get_raw_calibration_spectrum_at_coor_async(calibration_group: Calibration, coor: tuple, m: int = 0) -> tuple:
+    """
+    Retrieve a raw calibration spectrum together with the corresponding spectral line, if available,
+    from the data group at the specified spatial coordinates.
+
+    Args:
+        calibration_group (Calibration): The calibration group containing the raw calibration data.
+        coor (tuple): A tuple containing the z, y, x coordinates of the spectrum to retrieve.
+        m (int): The index of the calibration material to use.
+
+    Returns:
+        tuple: (raw_spectrum, spectral_line, linewidth), where spectral_line and linewidth may be None.
+        If no spectral line information is available, spectral_line and linewidth are returned as None.
+
+    Raises:
+        ValueError: If coor does not contain exactly 3 values.
+        IndexError: If the coordinates are out of range for the raw spectrum dataset.
+    """
+
+    index = calibration_group._data_group._get_spatial_index_from_coor(coor)
+    spectral_line_coro = _get_spectral_line_in_image_from_calibration_async(calibration_group, index, m)
+
+    async def raw_spectrum_coro(coor, m):
+        try:
+            rawdata_arr = await calibration_group._file.open_dataset(concatenate_paths(calibration_group._path, brim_obj_names.data.raw_data, str(m), '2DArray_per_spectrum'))
+        except Exception as e:
+            raise ValueError(f"Raw calibration data for material {m} not found in the calibration group.") from e
+        dims = rawdata_arr.ndim
+        index = await calibration_group._get_calibration_index_from_coor(coor)
+        if dims < 2:
+            raise ValueError(f"Raw calibration data for material {m} is expected to have at least 2 dimensions, found {rawdata_arr.ndim}")
+        elif dims==2:
+            if index != 0:
+                raise IndexError(f"Raw calibration data for material {m} has only one spectrum, but index {index} was requested.")
+            return await _async_getitem(rawdata_arr, (...,))
+        #TODO: handle the case where 3 dimensions are present but there is only one calibration spectrum
+        # (this can happen if one one calibration spectrum is present but multiple raw spectra are acquired for it)
+        if index >= rawdata_arr.shape[0]:
+            raise IndexError(f"Index {index} is out of range for raw calibration data for material {m} with shape {rawdata_arr.shape}")
+        return await _async_getitem(rawdata_arr, (index, ...))
+
+    raw_spectrum, spectral_line = await asyncio.gather(raw_spectrum_coro(coor, m), spectral_line_coro) 
+    return (raw_spectrum, ) + spectral_line
+
+def get_raw_calibration_spectrum_at_coor(calibration_group: Calibration, coor: tuple, m: int = 0) -> tuple:
+    """
+    Synchronous wrapper for `get_raw_calibration_spectrum_at_coor_async`.
+    """
+    return sync(get_raw_calibration_spectrum_at_coor_async(calibration_group, coor, m))

@@ -103,6 +103,7 @@ if __name__ == "__main__":
     # add the spectral line to the analysis results in the format of the SinglePoint_VIPA subtype
     single_point_VIPA.add_analysis_results_spectral_line(ar, np.empty((4)))
     single_point_VIPA.get_raw_spectrum_in_image(d0, (1,2,3), analysis_results=ar)
+    single_point_VIPA.get_raw_calibration_spectrum_at_coor(c0, (1,2,3), m=0)
 
     f.close()
 

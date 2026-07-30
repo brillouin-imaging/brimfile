@@ -86,6 +86,19 @@ class Calibration:
             if arr.shape[0] > 1 and self._index is None:
                 raise ValueError(f"Calibration array {m} has more than one spectrum but no index dataset found")
 
+    async def _get_calibration_index_from_coor(self, coor: tuple) -> int:
+        """
+        Retrieve the calibration index for a given spatial coordinate.
+
+        Args:
+            coor (tuple): Spatial coordinate as ``(z, y, x)``.
+        """
+        spatial_index = self._data_group._get_spatial_index_from_coor(coor)
+        if self._index is None:
+            #TODO: check if the calibration array has only one spectrum, in which case we can return 0
+            # otherwise, raise an error
+            return 0
+        return int(await _async_getitem(self._index, spatial_index))
 
     def get_spectrum_at_coor(self, coor: tuple, m: int = 0) -> tuple:
         """
@@ -105,20 +118,12 @@ class Calibration:
                 selected spectrum/shift cannot be retrieved.
             IndexError: If calibration material `m` does not exist.
         """
-        if len(coor) != 3:
-            raise ValueError("coor must contain 3 values for z, y, x")
         
         if m not in self._calibration_arrays:
             raise IndexError(f"Calibration material {m} not found in calibration group {self._path}")
         cal_arr_m = self._calibration_arrays[m]
 
-        i = 0
-        if self._index is not None:
-            if self._data_group._sparse:
-                index = int(self._data_group._spatial_map[coor])
-                i = int(self._index[index])
-            else:
-                i = int(self._index[coor])
+        i = sync(self._get_calibration_index_from_coor(coor))
         
         coros = [_async_getitem(cal_arr_m, (i, slice(None))),
                  self._file.get_attr(cal_arr_m, 'Shift'),

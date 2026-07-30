@@ -321,3 +321,199 @@ def test_get_raw_spectrum_in_image_with_calibration_fallback(empty_brim_file, sa
     assert linewidth == 0.8
 
     f.close()
+
+
+@pytest.mark.parametrize(
+    "is_sparse,coor",
+    [(False, (1, 2, 3)), (True, (0, 0, 1))],
+)
+def test_get_raw_calibration_spectrum_at_coor_returns_raw_and_line(
+    is_sparse,
+    coor,
+    empty_brim_file,
+    sample_data,
+    sample_data_sparse,
+):
+    """get_raw_calibration_spectrum_at_coor returns raw calibration data and matching spectral line."""
+    f = brim.File(empty_brim_file, mode="r+")
+
+    if is_sparse:
+        data = f.create_data_group_sparse(
+            sample_data_sparse["PSD"],
+            sample_data_sparse["frequency"],
+            scanning=sample_data_sparse["scanning"],
+        )
+        n_points = sample_data_sparse["PSD"].shape[0]
+        index = np.arange(n_points, dtype=np.int32) % 2
+        spectra = np.stack(
+            [sample_data_sparse["PSD"][0, :], sample_data_sparse["PSD"][1, :]],
+            axis=0,
+        )
+    else:
+        data = f.create_data_group(
+            sample_data["PSD"],
+            sample_data["frequency"],
+            sample_data["pixel_size"],
+        )
+        index = np.zeros(sample_data["dimensions"], dtype=np.int32)
+        index[coor] = 1
+        spectra = np.stack(
+            [sample_data["PSD"][0, 0, 0, :], sample_data["PSD"][1, 2, 3, :]],
+            axis=0,
+        )
+
+    data.create_calibration_group(
+        index=index,
+        calibration_data=[{"spectra": spectra, "shift": 7.0, "shift_units": "GHz"}],
+    )
+    calibration = data.get_calibration()
+
+    rawdata_cal = np.arange(2 * 6, dtype=np.float32).reshape(2, 2, 3)
+    spectral_line_cal = np.array([[0, 1, 2, 3], [9, 8, 7, 6]], dtype=np.int32)
+    spv.add_rawdata_calibration(calibration, rawdata_cal)
+    spv.add_calibration_spectral_line(calibration, spectral_line_cal, linewidth=0.8)
+
+    raw_spectrum, line, linewidth = spv.get_raw_calibration_spectrum_at_coor(
+        calibration,
+        coor,
+        m=0,
+    )
+
+    np.testing.assert_array_equal(raw_spectrum, rawdata_cal[1])
+    np.testing.assert_array_equal(line, spectral_line_cal[1])
+    assert linewidth == 0.8
+
+    f.close()
+
+
+def test_get_raw_calibration_spectrum_at_coor_raises_when_rawdata_missing(empty_brim_file, sample_data):
+    """get_raw_calibration_spectrum_at_coor should fail when calibration raw data was not added."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data = f.create_data_group(
+        sample_data["PSD"],
+        sample_data["frequency"],
+        sample_data["pixel_size"],
+    )
+
+    data.create_calibration_group(
+        calibration_data=[
+            {
+                "spectra": sample_data["PSD"][0, 0, 0, :][None, :],
+                "shift": 7.0,
+                "shift_units": "GHz",
+            }
+        ],
+    )
+    calibration = data.get_calibration()
+
+    with pytest.raises(ValueError, match="Raw calibration data for material 0 not found"):
+        spv.get_raw_calibration_spectrum_at_coor(calibration, (0, 0, 0), m=0)
+
+    f.close()
+
+
+def test_get_raw_calibration_spectrum_at_coor_returns_none_when_spectral_line_missing(
+    empty_brim_file,
+    sample_data,
+):
+    """When calibration spectral line is absent, helper should return (raw_spectrum, None, None)."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data = f.create_data_group(
+        sample_data["PSD"],
+        sample_data["frequency"],
+        sample_data["pixel_size"],
+    )
+
+    index = np.zeros(sample_data["dimensions"], dtype=np.int32)
+    index[1, 2, 3] = 1
+    spectra = np.stack(
+        [sample_data["PSD"][0, 0, 0, :], sample_data["PSD"][1, 2, 3, :]],
+        axis=0,
+    )
+    data.create_calibration_group(
+        index=index,
+        calibration_data=[{"spectra": spectra, "shift": 7.0, "shift_units": "GHz"}],
+    )
+    calibration = data.get_calibration()
+
+    rawdata_cal = np.arange(2 * 6, dtype=np.float32).reshape(2, 2, 3)
+    spv.add_rawdata_calibration(calibration, rawdata_cal)
+
+    raw_spectrum, line, linewidth = spv.get_raw_calibration_spectrum_at_coor(
+        calibration,
+        (1, 2, 3),
+        m=0,
+    )
+
+    np.testing.assert_array_equal(raw_spectrum, rawdata_cal[1])
+    assert line is None
+    assert linewidth is None
+
+    f.close()
+
+
+def test_get_raw_calibration_spectrum_at_coor_rejects_invalid_coordinate_length(
+    empty_brim_file,
+    sample_data,
+):
+    """Coordinate validation should require exactly 3 values (z, y, x)."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data = f.create_data_group(
+        sample_data["PSD"],
+        sample_data["frequency"],
+        sample_data["pixel_size"],
+    )
+
+    data.create_calibration_group(
+        calibration_data=[
+            {
+                "spectra": sample_data["PSD"][0, 0, 0, :][None, :],
+                "shift": 7.0,
+                "shift_units": "GHz",
+            }
+        ],
+    )
+    calibration = data.get_calibration()
+
+    with pytest.raises(ValueError, match="coor must contain 3 values"):
+        spv.get_raw_calibration_spectrum_at_coor(calibration, (1, 2), m=0)
+
+    f.close()
+
+
+def test_get_raw_calibration_spectrum_at_coor_rejects_nonzero_index_for_2d_rawdata(
+    empty_brim_file,
+    sample_data,
+):
+    """2-D raw calibration data can only be used with calibration index 0."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data = f.create_data_group(
+        sample_data["PSD"],
+        sample_data["frequency"],
+        sample_data["pixel_size"],
+    )
+
+    index = np.zeros(sample_data["dimensions"], dtype=np.int32)
+    index[1, 2, 3] = 1
+    spectra = np.stack(
+        [sample_data["PSD"][0, 0, 0, :], sample_data["PSD"][1, 2, 3, :]],
+        axis=0,
+    )
+    data.create_calibration_group(
+        index=index,
+        calibration_data=[{"spectra": spectra, "shift": 7.0, "shift_units": "GHz"}],
+    )
+    calibration = data.get_calibration()
+
+    # Build a 2-D raw calibration dataset directly to emulate external/legacy files
+    # where only one raw spectrum image exists for a calibration material.
+    raw_group_path = concatenate_paths(calibration._path, brim_obj_names.data.raw_data, "0")
+    sync(calibration._file.create_group(raw_group_path))
+    rawdata_cal = np.arange(2 * 3, dtype=np.float32).reshape(2, 3)
+    sync(calibration._file.create_dataset(raw_group_path, "2DArray_per_spectrum", data=rawdata_cal))
+    spv.add_calibration_spectral_line(calibration, np.array([[0, 1, 2, 3], [4, 5, 6, 7]], dtype=np.int32))
+
+    with pytest.raises(IndexError, match="has only one spectrum"):
+        spv.get_raw_calibration_spectrum_at_coor(calibration, (1, 2, 3), m=0)
+
+    f.close()

@@ -109,6 +109,34 @@ class TestCalibration:
         assert shift.units == 'GHz'
         f.close()
 
+    def test_get_spectrum_without_index_uses_single_spectrum_for_any_coordinate(self, empty_brim_file, sample_data):
+        """Single-spectrum calibration without Index should resolve to index 0 for any valid coordinate."""
+        f = brim.File(empty_brim_file, mode='r+')
+        data = f.create_data_group(
+            sample_data['PSD'],
+            sample_data['frequency'],
+            sample_data['pixel_size'],
+        )
+
+        ref_spectrum = sample_data['PSD'][0, 0, 0, :][None, :]
+        data.create_calibration_group(
+            calibration_data=[
+                {
+                    'spectra': ref_spectrum,
+                    'shift': 7.5,
+                    'shift_units': 'GHz',
+                }
+            ],
+        )
+
+        cal = data.get_calibration()
+        spectrum, shift = cal.get_spectrum_at_coor((2, 4, 6), m=0)
+
+        np.testing.assert_allclose(spectrum, ref_spectrum[0])
+        assert shift.value == 7.5
+        assert shift.units == 'GHz'
+        f.close()
+
     def test_get_calibration_without_group_raises(self, simple_brim_file):
         """Test get_calibration fails if no calibration group exists."""
         f = brim.File(simple_brim_file)
