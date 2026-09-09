@@ -82,15 +82,60 @@ class FileAbstraction(ABC):
     class Compression:
         """
         Compression options for datasets.
+
+        `BLOSC`, `GZIP`, and `ZSTD` map to the bytes-to-bytes codecs natively
+        bundled with zarr (see https://zarr.readthedocs.io/en/stable/api/zarr/codecs/).
+        `ZLIB` is kept for backward compatibility and is equivalent to `BLOSC`
+        with `cname='zlib'`.
         """
         NONE = None
         DEFAULT = 1
         ZLIB = 2
-        LZF = 3
+        BLOSC = 3
+        GZIP = 4
+        ZSTD = 5
 
-        def __init__(self, type=DEFAULT, level=None):
+        def __init__(self, type=DEFAULT, level=None, **kwargs):
             self.type = type
             self.level = level
+            # extra codec-specific keyword arguments (e.g. `cname`/`shuffle` for
+            # BLOSC, `checksum` for ZSTD), forwarded as-is to the zarr codec
+            self.kwargs = kwargs
+
+        def to_zarr_compressor(self):
+            """
+            Convert the compression options to a zarr-compatible compression object.
+
+            Returns:
+                A zarr-compatible compression object or None if no compression is specified.
+            """
+            kwargs = dict(self.kwargs)
+            match self.type:
+                case FileAbstraction.Compression.DEFAULT:
+                    # see https://zarr.readthedocs.io/en/stable/api/zarr/index.html#zarr.create_array
+                    compressor = 'auto'
+                case FileAbstraction.Compression.ZLIB:
+                    if self.level is not None:
+                        kwargs.setdefault('clevel', self.level)
+                    compressor = zarr.codecs.BloscCodec(
+                        cname='zlib', **kwargs)
+                case FileAbstraction.Compression.BLOSC: 
+                    if self.level is not None:
+                                        kwargs.setdefault('clevel', self.level)                   
+                    compressor = zarr.codecs.BloscCodec(**kwargs)
+                case FileAbstraction.Compression.GZIP:
+                    if self.level is not None:
+                        kwargs.setdefault('level', self.level)
+                    compressor = zarr.codecs.GzipCodec(**kwargs)
+                case FileAbstraction.Compression.ZSTD:
+                    if self.level is not None:
+                        kwargs.setdefault('level', self.level)
+                    compressor = zarr.codecs.ZstdCodec(**kwargs)
+                case _:
+                    warnings.warn(
+                        f"Compression type '{self.type}' not supported by zarr. Using no compression.")
+                    compressor = None
+            return compressor
 
     @abstractmethod
     async def open_dataset(self, full_path: str):
@@ -491,7 +536,8 @@ else:
                         mode_zip = 'a'
                     store = zarr.storage.ZipStore(filename, mode=mode_zip)
                 case st.ZARR:
-                    store = zarr.storage.LocalStore(filename)
+                    # TODO: Add support for the other modes
+                    store = zarr.storage.LocalStore(filename, read_only=(mode == 'r'))
                 case st.S3:
                     if importlib.util.find_spec('fsspec') is None:
                         raise ModuleNotFoundError(
@@ -585,18 +631,7 @@ else:
             if chunk_size is None:
                 chunk_size = 'auto'
             if compression is not None:
-                if compression.type == FileAbstraction.Compression.DEFAULT:
-                    # see https://zarr.readthedocs.io/en/stable/api/zarr/index.html#zarr.create_array
-                    compressor = 'auto'
-                elif compression.type == FileAbstraction.Compression.ZLIB:
-                    compressor = zarr.codecs.BloscCodec(
-                        cname='zlib', clevel=compression.level)
-                elif compression.type == FileAbstraction.Compression.LZF:
-                    compressor = numcodecs.LZF()
-                else:
-                    compression = None
-                    warnings.warn(
-                        f"Compression type '{compression.type}' not supported by zarr. Using no compression.")
+                compressor = compression.to_zarr_compressor()
             ds = await parent_group.create_array(
                 name=name, data=data,
                 chunks=chunk_size, compressors=compressor)
