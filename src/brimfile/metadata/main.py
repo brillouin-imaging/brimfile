@@ -159,10 +159,14 @@ class Metadata:
                 out_dict[attr[len(group):]] = MetadataItem(val, u)
         return out_dict
     
-    async def _load_general_metadata(self):
+    async def _load_general_metadata(self, *,  create_if_missing: bool = False) -> dict:
         """
         Load the general metadata from the file's root attributes.
         If the general metadata has already been loaded, it returns a copy of the cached metadata.
+        Args:
+            create_if_missing (bool): If True, create the general metadata group if it does not exist. 
+            If False, returns a dictionary containing empty dictionaries for each metadata type
+            if the general metadata group does not exist.
         Returns:
             dict: A dictionary containing the general metadata attributes, as it is stored in the file.
             Note: The returned dictionary is a copy of the cached metadata to prevent accidental modifications to the data in the class.        
@@ -174,6 +178,9 @@ class Metadata:
         try:
             metadata_dict = await self._file.get_attr(self._path, 'Metadata')
         except Exception:
+            if not create_if_missing:
+                warnings.warn(f"General metadata group not found in the file.")
+                return {t.value: {} for t in Metadata.Type}
             # if the metadata group does not exist, create it
             for type in Metadata.Type:
                 metadata_dict[type.value] = {}
@@ -303,7 +310,7 @@ class Metadata:
             raise ValueError(
                 "The current metadata object is not linked to a data group. Set local to False to add the metadata to the general metadata group.")
         if not local:
-            general_metadata = sync(self._load_general_metadata())        
+            general_metadata = sync(self._load_general_metadata(create_if_missing=True))        
         # iterate over the metadata dictionary and add each attribute
         for key, value in metadata.items():
             if not isinstance(value, MetadataItem):
@@ -351,7 +358,7 @@ class Metadata:
             local_metadata[type.value].update(out_dict)
             sync(self._file.create_attr(self._data_path, 'Metadata', local_metadata))
         else:
-            general_metadata = sync(self._load_general_metadata())   
+            general_metadata = sync(self._load_general_metadata(create_if_missing=True))   
             # we don't need to call `general_metadata.setdefault(type.value, {})``
             # since the general metadata is always initialized with all types in the file, even if they are empty.
             general_metadata[type.value].update(out_dict)
