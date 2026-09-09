@@ -29,7 +29,17 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[export-tiff]"
         pip install pytest
-    
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install JS test dependencies (pyodide tests)
+      run: |
+        cd tests/js
+        npm install
+
     - name: Run tests with pytest
       env:
         PYTHONASYNCIODEBUG: true

@@ -1,0 +1,12 @@
+{
+  "name": "brimfile-pyodide-tests",
+  "private": true,
+  "type": "module",
+  "description": "Node-based test harness for exercising the pyodide _zarrFile implementation against the real zarr_file.js ZarrFile class inside an actual pyodide runtime.",
+  "devDependencies": {
+    "pyodide": "~0.29.0",
+    "zarrita": "0.7.5",
+    "@zarrita/storage": "0.2.0",
+    "fast-xml-parser": "5.11.1"
+  }
+}

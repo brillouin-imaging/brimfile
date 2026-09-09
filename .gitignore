@@ -15,3 +15,4 @@ __pycache__/
 *.pyc
 tests/__pycache__/
 docs
+node_modules/
