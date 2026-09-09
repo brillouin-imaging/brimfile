@@ -295,9 +295,10 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
 
     class _zarrFile:
         class ZarrArray:
-            def __init__(self, zarr_js, dts):
+            def __init__(self, zarr_js, dts, shape=None):
                 self._zarr_js = zarr_js
-                self.dts = dts            
+                self.dts = dts
+                self._shape = shape
             def __str__(self):
                 return str(self.dts)
             def __array__(self, dtype=None, copy=None):
@@ -399,7 +400,10 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
         # -------------------- Dataset Management --------------------
         async def open_dataset(self, full_path: str):
             dts = await self._zarr_js.open_dataset(str(full_path))
-            return _zarrFile.ZarrArray(self._zarr_js, dts)
+            shape = await self._zarr_js.get_array_shape(str(dts))
+            return _zarrFile.ZarrArray(
+                self._zarr_js, dts, _zarrFile.JsProxy_to_py(shape)
+            )
         
         # -------------------- Listing --------------------
         async def list_objects(self, full_path) -> list:
