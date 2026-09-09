@@ -231,6 +231,7 @@ def _gather_sync(*aws, return_exceptions: bool = False):
 
 import sys
 if "pyodide" in sys.modules:  # using javascript based zarr library
+    import pyodide
     import js
     
     async def _awaitable_wrapper(coro):
@@ -336,8 +337,13 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
             return jsproxy
         
         # -------------------- Attribute Management --------------------
-        async def get_attr(self, full_path, attr_name):  
-            res = await self._zarr_js.get_attribute(str(full_path), str(attr_name))
+        async def get_attr(self, full_path, attr_name): 
+            try: 
+                res = await self._zarr_js.get_attribute(str(full_path), str(attr_name))
+            except pyodide.ffi.JsException as exc:
+                raise KeyError(
+                    f"Attribute {attr_name!r} does not exist on object {full_path!r}"
+                ) from exc
             return _zarrFile.JsProxy_to_py(res)
         
         # -------------------- Group Management --------------------

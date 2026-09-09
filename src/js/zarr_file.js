@@ -161,6 +161,12 @@ class ZarrFile {
     await this.#wait_for_ready()
     full_path = standardize_path(full_path);
     const obj = await zarr.open.v3(this.root.resolve(full_path));
+
+    if (!Object.hasOwn(obj.attrs, attr_name)) {
+      throw new Error(
+        `Attribute '${attr_name}' does not exist on object '${full_path}'`
+      );
+    }
     return obj.attrs[attr_name];
   }
 
