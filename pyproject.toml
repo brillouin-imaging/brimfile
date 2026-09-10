@@ -44,3 +44,8 @@ converter = ["h5py"]
 Documentation = "https://brillouin-imaging.github.io/brimfile/"
 Repository = "https://github.com/brillouin-imaging/brimfile"
 Issues = "https://github.com/brillouin-imaging/brimfile/issues"
+
+[tool.pytest.ini_options]
+markers = [
+    "pyodide: tests that run the pyodide `_zarrFile` implementation inside a real pyodide runtime via Node.js (requires Node/npm and `tests/js/node_modules`, see tests/README.md).",
+]

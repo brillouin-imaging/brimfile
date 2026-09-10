@@ -370,6 +370,14 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
             
 
         def __init__(self, zarr_js, filename:str,  *, version: Version = None):
+            """
+            Initialize the Zarr file.
+            Args:
+                zarr_js: JavaScript ZarrFile object, defined in src/js/zarr_file.js.
+                    This object needs to be initialized in the js runtime because it needs to access the JS fetch and File API.
+                filename (str): Path to the Zarr file.
+                version (Version): Version of the file format to use. Default is None.
+            """
             self._zarr_js = zarr_js
             self.filename = filename
             self.version = version

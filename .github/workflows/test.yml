@@ -34,4 +34,4 @@ jobs:
       env:
         PYTHONASYNCIODEBUG: true
       run: |
-        pytest tests/ -v --import-mode=importlib
+        pytest tests/ -v --import-mode=importlib -m "not pyodide"

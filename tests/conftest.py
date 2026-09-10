@@ -6,10 +6,82 @@ import pytest
 import numpy as np
 import os
 import shutil
+import functools
+import http.server
+import threading
+import urllib.parse
 from datetime import datetime
 
 
 import brimfile as brim
+
+
+class _S3ListingCORSRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """Static file server with CORS headers that also emulates just enough of
+    the S3 ListObjectsV2 ("list-type=2") API for `zarr_file.js`'s URL-based
+    (S3) store listing to work against a plain local directory, since a real
+    S3 bucket isn't available in tests.
+    """
+
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        super().end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        if parsed.path == '/' and 'list-type' in query:
+            prefix = query.get('prefix', [''])[0]
+            self._serve_list_objects_v2(prefix)
+            return
+        super().do_GET()
+
+    def _serve_list_objects_v2(self, prefix: str):
+        prefix = prefix.rstrip('/')
+        root = os.path.normpath(self.directory)
+        target_dir = os.path.normpath(os.path.join(root, prefix))
+        prefixes = []
+        # guard against the request prefix escaping the served directory
+        if (target_dir == root or target_dir.startswith(root + os.sep)) and os.path.isdir(target_dir):
+            for name in sorted(os.listdir(target_dir)):
+                if os.path.isdir(os.path.join(target_dir, name)):
+                    key = f"{prefix}/{name}/" if prefix else f"{name}/"
+                    prefixes.append(key)
+        common_prefixes_xml = ''.join(
+            f"<CommonPrefixes><Prefix>{p}</Prefix></CommonPrefixes>" for p in prefixes
+        )
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            f"<ListBucketResult>{common_prefixes_xml}</ListBucketResult>"
+        )
+        body = xml.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/xml')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture
+def zarr_http_server(tmp_path):
+    """Serve `tmp_path` over local HTTP with CORS + minimal S3-list emulation.
+
+    Yields the base URL (e.g. 'http://127.0.0.1:PORT') that fixtures written
+    under `tmp_path` (e.g. `simple_brim_file`) can be reached at.
+    """
+    handler = functools.partial(_S3ListingCORSRequestHandler, directory=str(tmp_path))
+    httpd = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+
+    yield f"http://127.0.0.1:{port}"
+
+    httpd.shutdown()
+    thread.join()
 
 
 @pytest.fixture(scope="session")
