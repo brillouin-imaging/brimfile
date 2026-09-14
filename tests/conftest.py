@@ -33,9 +33,10 @@ class _S3ListingCORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
-        if parsed.path == '/' and 'list-type' in query:
+        if 'list-type' in query:
             prefix = query.get('prefix', [''])[0]
-            self._serve_list_objects_v2(prefix)
+            prefix = prefix.lstrip('/')
+            self._serve_list_objects_v2(os.path.join(parsed.path.lstrip('/'), prefix))
             return
         super().do_GET()
 

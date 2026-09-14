@@ -16,6 +16,15 @@ function standardize_path(path) {
   return path;
 }
 
+//same as `standardize_path` but for URLs
+function standardize_url(urlString) {
+  const url = new URL(urlString);
+  if (!url.pathname.endsWith('/')) {
+    url.pathname += '/';
+  }
+  return url.toString();
+}
+
 
 class FolderStore {
   constructor(fileMap) { 
@@ -231,23 +240,24 @@ class ZarrFile {
 
   async #list_S3keys(full_path){
 
-    function split_path(url, full_path) {
-      url = standardize_path(url).slice(0,-1);
+    function split_path(urlString, full_path) {
+      const url = new URL(urlString);
       full_path = standardize_path(full_path);
-
-      let path = [];
-      const last_slash = url.lastIndexOf('/');
-      path.endpoint = url.slice(0, last_slash+1)
-      path.object = url.slice(last_slash+1) + '/' + full_path
-      return path;
+      const parts = url.pathname.split('/').filter(Boolean);
+      return {
+        endpoint: url.origin,
+        bucket: parts[0],
+        object: parts.slice(1).concat(full_path).join('/'),
+      };
     }
     const path = split_path(this.filename, full_path);
 
-    let queries = "list-type=2&delimiter=/";
-    queries += "&prefix="+path.object;
-
-    let url = path.endpoint + "?" + queries;
-    url = encodeURI(url);
+    const url = new URL(`${path.endpoint}/${path.bucket}`);
+    url.search = new URLSearchParams({
+      "list-type": "2",
+      delimiter: "/",
+      prefix: "/" + path.object,
+    }).toString();
 
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
@@ -427,7 +437,8 @@ function init_file(files) {
     });
   }
   else if (files.length === 1 && typeof files[0] == 'string') {
-    const file = standardize_path(files[0]);
+    // If it's a string, we assume it's a URL
+    const file = standardize_url(files[0]);
     filename = file;
     //make sure the filename doesn't end with '/'
     if (filename.endsWith('/')) {
