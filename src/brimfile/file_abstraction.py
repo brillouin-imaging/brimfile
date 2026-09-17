@@ -304,6 +304,9 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                 #TODO: implement dtype and copy
                 # see https://numpy.org/doc/stable/user/basics.interoperability.html#dunder-array-interface
                 return self[...]
+            async def to_np_array(self, dtype=None, copy=None):
+            # same as __array__ but using async code
+                return np.array(await self.getitem(...))
             
             async def getitem(self, index):
                 def index_to_js_slice(i):
