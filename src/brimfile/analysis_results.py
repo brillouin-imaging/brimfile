@@ -544,17 +544,21 @@ class AnalysisResults:
 
         if AnalysisResults.Quantity.Shift.name in res:
             ec_name = AnalysisResults.Quantity.Elastic_contrast.name
-            res[ec_name] = {}
             for pt_name, item in res[AnalysisResults.Quantity.Shift.name].items():
-                ec = await self._compute_elastic_contrast_async(item.value)
-                res[ec_name][pt_name] = Metadata.Item(ec, None)
+                try:
+                    ec = await self._compute_elastic_contrast_async(item.value)
+                    res.setdefault(ec_name, {})[pt_name] = Metadata.Item(ec, None)
+                except Exception as e:
+                    warnings.warn(f"Error computing elastic contrast for {pt_name}: {e}")
 
         if AnalysisResults.Quantity.Width.name in res:
             vc_name = AnalysisResults.Quantity.Viscous_contrast.name
-            res[vc_name] = {}
             for pt_name, item in res[AnalysisResults.Quantity.Width.name].items():
-                vc = await self._compute_viscous_contrast_async(item.value)
-                res[vc_name][pt_name] = Metadata.Item(vc, None)
+                try:
+                    vc = await self._compute_viscous_contrast_async(item.value)
+                    res.setdefault(vc_name, {})[pt_name] = Metadata.Item(vc, None)
+                except Exception as e:
+                    warnings.warn(f"Error computing viscous contrast for {pt_name}: {e}")
         return res
 
     @classmethod
