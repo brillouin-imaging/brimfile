@@ -14,7 +14,9 @@ The test suite is organized into multiple test files, each focusing on different
 - **`test_integration.py`**: Integration tests for complete workflows and edge cases
 - **`test_utils.py`**: Tests for utility functions
 - **`test_file_abstraction.py`**: Tests for the native (zarr-backed) `_zarrFile` implementation of `FileAbstraction` (`brimfile.file_abstraction`), across `StoreType.ZARR` and `StoreType.ZIP`
-- **`test_file_abstraction_pyodide.py`**: Tests for the pyodide `_zarrFile` implementation of `FileAbstraction`, run inside a real pyodide runtime wrapping the real `src/js/zarr_file.js` `ZarrFile` class (see "Pyodide/JS tests" below)
+- **`test_browser_stores.py`**: Tests for the browser-backed zarr `Store`/file-like adapters used by the pyodide branch of `_zarrFile` (`_BrowserFolderStore`, `_BrowserFetchStore`, `_read_whole_js_file`), driven directly against the real `zarr` package with plain Python stand-ins for the JsProxy shapes they touch - no pyodide runtime needed
+- **`test_file_browser_source.py`**: End-to-end test of the public `brim.File(...)` entry point through the pyodide-only browser-source path (`StoreType.ZIP`/`FOLDER` with a non-string `filename`), using the same fully-valid brim file the rest of the suite relies on (`simple_brim_file`)
+- **`test_file_abstraction_pyodide.py`**: Tests for the pyodide `_zarrFile` implementation of `FileAbstraction`, run inside a real pyodide runtime with the real `zarr` package (see "Pyodide/JS tests" below)
 - **`general.py`**: Original demonstration script (kept for reference)
 
 ## Running the Tests
@@ -44,24 +46,25 @@ pytest tests/test_file.py::TestFileCreation::test_create_file_auto_store -v
 ### Pyodide/JS tests
 
 `test_file_abstraction_pyodide.py` exercises the pyodide branch of `_zarrFile`
-against a real pyodide runtime (running in Node.js, no browser needed) wrapping
-the real `ZarrFile` class from `src/js/zarr_file.js`. These tests are skipped
-automatically unless Node.js is installed and the JS test dependencies have
-been installed once:
+against a real pyodide runtime (running in Node.js, no browser needed),
+loading the real `zarr` package directly - it no longer wraps a separate JS
+implementation (`src/js/zarr_file.js` is unrelated to this test suite now;
+see the module docstring in `test_file_abstraction_pyodide.py` for why, and
+for an important caveat about `zarr`'s `numcodecs>=0.14` requirement versus
+the older `numcodecs` bundled with the currently-pinned Pyodide `0.29.x`
+line). These tests are skipped automatically unless Node.js is installed and
+the JS test dependencies have been installed once:
 
 ```bash
 cd tests/js
 npm install
 ```
 
-This installs, under `tests/js/node_modules` (not tracked, isolated from
-`pyproject.toml`):
-- `pyodide` (pinned to the `0.29.x` minor version)
-- pinned local copies of `zarrita`, `@zarrita/storage`, and `fast-xml-parser`
-  (the same packages `zarr_file.js` imports from a CDN at runtime; a custom
-  Node ESM loader, `tests/js/loader.mjs`, redirects those CDN imports to these
-  local, version-pinned copies so the tests don't depend on the CDN being
-  reachable/unchanged)
+This installs `pyodide` (pinned to the `0.29.x` minor version) under
+`tests/js/node_modules` (not tracked, isolated from `pyproject.toml`). Unlike
+the rest of this suite, these tests also need genuine network access to
+Pyodide's package CDN (`cdn.jsdelivr.net`) at run time, to install `micropip`
+and then real `zarr`/`numcodecs` inside the pyodide runtime itself.
 
 Once installed, `pytest tests/ -v` picks the pyodide tests up automatically
 (marked `@pytest.mark.pyodide`). To run only them:
@@ -77,13 +80,16 @@ pytest tests/ -v -m "not pyodide"
 ```
 
 Internally, `tests/js/pyodide_driver.mjs` is a thin Node.js script that loads
-pyodide, mounts the repository's `src/` directory into pyodide's virtual
-filesystem, wraps a real `ZarrFile` instance (reading test fixtures over a
-local HTTP server started by the `zarr_http_server` fixture in `conftest.py`)
-with `_AbstractFile(...)`, and executes a list of operations sent as JSON over
-stdin, reporting raw JSON results back over stdout. All actual assertions are
-made in Python, in `test_file_abstraction_pyodide.py` -- the Node script is a
-mechanical executor only.
+pyodide, installs real `zarr` inside it, mounts the repository's `src/`
+directory into pyodide's virtual filesystem, builds small JS objects that
+duck-type just enough of a browser `File`/FileList (or a plain URL string,
+for the S3 path, read via a local HTTP server started by the
+`zarr_http_server` fixture in `conftest.py`) for `_zarrFile`'s pyodide
+branch, constructs `_AbstractFile(js_source, ...)`, and executes a list of
+operations sent as JSON over stdin, reporting raw JSON results back over
+stdout. All actual assertions are made in Python, in
+`test_file_abstraction_pyodide.py` -- the Node script is a mechanical
+executor only.
 
 ### Test Configuration
 

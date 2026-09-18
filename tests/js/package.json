@@ -2,11 +2,8 @@
   "name": "brimfile-pyodide-tests",
   "private": true,
   "type": "module",
-  "description": "Node-based test harness for exercising the pyodide _zarrFile implementation against the real zarr_file.js ZarrFile class inside an actual pyodide runtime.",
+  "description": "Node-based test harness for exercising the pyodide _zarrFile implementation, with real zarr, inside an actual pyodide runtime. Pinned to >=314.0.1, the first Pyodide release with a working zarr 3.x + numcodecs pair - see test_file_abstraction_pyodide.py's module docstring.",
   "devDependencies": {
-    "pyodide": "~0.29.0",
-    "zarrita": "0.7.5",
-    "@zarrita/storage": "0.2.0",
-    "fast-xml-parser": "5.11.1"
+    "pyodide": "~314.0.1"
   }
 }

@@ -10,14 +10,10 @@ from .constants import brim_obj_names
 from . import units
 from . import subtypes
 
-from .file_abstraction import FileAbstraction, StoreType, sync, Version
+from .file_abstraction import FileAbstraction, StoreType, sync, Version, _AbstractFile
 from .validation import validate_json, ValidationError, ValidationLevel
 from .validation.json_descriptor import generate_json_descriptor
 
-# don't import _AbstractFile if running in pyodide (it is defined in js)
-import sys
-if "pyodide" not in sys.modules:
-    from .file_abstraction import _AbstractFile
 
 class File:
     """
@@ -28,40 +24,39 @@ class File:
     results, and validation helpers.
     """
 
-    if "pyodide" in sys.modules:
-        def __init__(self, file):
-            self._file = file
-            self._file.version = self._get_file_version_tuple()
-            if not self.is_valid():
-                raise ValueError("The brim file is not valid!")
-    else:
-        def __init__(self, filename: str, mode: str = 'r',
-                     store_type: StoreType = StoreType.AUTO, * ,
-                     validate: bool = False) -> None:
-            """
-            Initialize the File object.
+    def __init__(self, filename, mode: str = 'r',
+                 store_type: StoreType = StoreType.AUTO, *,
+                 validate: bool = False) -> None:
+        """
+        Initialize the File object.
 
-            Args:
-                filename (str): Path to the brim file.
-                mode: {'r', 'r+', 'a', 'w', 'w-'} the mode for opening the file (default is 'r' for read-only).
-                            See the definition of `mode` in `brimfile.file_abstraction._zarrFile.__init__()` for more details.
-                            'r' means read only (must exist); 'r+' means read/write (must exist);
-                            'a' means read/write (create if doesn't exist); 'w' means create (overwrite if exists); 'w-' means create (fail if exists).
-                store_type (StoreType): Type of the store to use, as defined in `brimfile.file_abstraction.StoreType`. Default is 'AUTO'.
-                validate (bool): Whether to validate the file upon initialization. Default is False.
-            """
-            self._file = _AbstractFile(
-                filename, mode=mode, store_type=store_type)
-            self._file.version = self._get_file_version_tuple()
-            if not self.is_valid():
-                raise ValueError("The brim file is not valid!")
-            if validate:
-                validation_errors: list[ValidationError] = self.validate()
-                for err in validation_errors:
-                    if err.level == ValidationLevel.WARNING or err.level == ValidationLevel.ERROR:
-                        warnings.warn(f"Validation warning at {err.path}: {err.message}")
-                    elif err.level == ValidationLevel.CRITICAL:
-                        raise ValueError(f"Validation error at {err.path}: {err.message}")
+        Args:
+            filename (str): Path to the brim file. On Pyodide, this may
+                alternatively be a browser `File` (with `store_type=StoreType.ZIP`)
+                or a JS Array of `File` from a directory picker (with
+                `store_type=StoreType.FOLDER`) - see
+                `brimfile.file_abstraction._zarrFile.__init__()`.
+            mode: {'r', 'r+', 'a', 'w', 'w-'} the mode for opening the file (default is 'r' for read-only).
+                        See the definition of `mode` in `brimfile.file_abstraction._zarrFile.__init__()` for more details.
+                        'r' means read only (must exist); 'r+' means read/write (must exist);
+                        'a' means read/write (create if doesn't exist); 'w' means create (overwrite if exists); 'w-' means create (fail if exists).
+                        Always treated as read-only when `filename` is a browser File/file-list (Pyodide only).
+            store_type (StoreType): Type of the store to use, as defined in `brimfile.file_abstraction.StoreType`. Default is 'AUTO'.
+                        Must be explicit (`ZIP` or `FOLDER`) when `filename` is a browser File/file-list rather than a path/URL string.
+            validate (bool): Whether to validate the file upon initialization. Default is False.
+        """
+        self._file = _AbstractFile(
+            filename, mode=mode, store_type=store_type)
+        self._file.version = self._get_file_version_tuple()
+        if not self.is_valid():
+            raise ValueError("The brim file is not valid!")
+        if validate:
+            validation_errors: list[ValidationError] = self.validate()
+            for err in validation_errors:
+                if err.level == ValidationLevel.WARNING or err.level == ValidationLevel.ERROR:
+                    warnings.warn(f"Validation warning at {err.path}: {err.message}")
+                elif err.level == ValidationLevel.CRITICAL:
+                    raise ValueError(f"Validation error at {err.path}: {err.message}")
 
     @staticmethod
     def _parse_version_tuple3(version: str) -> Version:
