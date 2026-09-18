@@ -35,9 +35,9 @@ class AnalysisResults:
         Shift = "Shift"
         # elastic contrast as defined in https://doi.org/10.1007/s12551-020-00701-9
         Elastic_contrast = "Elastic_contrast"
+        Width = "Width"
         # viscous contrast as defined in https://doi.org/10.1007/s12551-020-00701-9
         Viscous_contrast = "Viscous_contrast"
-        Width = "Width"
         Amplitude = "Amplitude"
         Offset = "Offset"
         R2 = "R2"
