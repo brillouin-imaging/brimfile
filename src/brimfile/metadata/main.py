@@ -266,7 +266,7 @@ class Metadata:
 
         # then load the general metadata from the metadata group
         global_metadata_dict = await self._load_general_metadata()
-        global_metadata_dict = global_metadata_dict.get(type.value)
+        global_metadata_dict = global_metadata_dict.get(type.value) or {}
         global_metadata_dict = self._raw_dict_to_MetadataItem_dict(global_metadata_dict)
         if validate:
             # validate the general metadata.
