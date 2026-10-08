@@ -466,6 +466,30 @@ class TestLocalVsGlobalMetadata:
         assert exp_md['Temperature'].units == 'C'
         f.close()
 
+    def test_local_metadata_when_global_type_absent(self, simple_brim_file):
+        """Test that local metadata values are added even if the global metadata has no entry for that section."""
+        # Remove the 'Experiment' type from global metadata.
+        root = zarr.open(simple_brim_file, mode='r+')
+        global_md = dict(root['Brillouin_data'].attrs['Metadata'])
+        global_md.pop('Experiment')
+        root['Brillouin_data'].attrs['Metadata'] = global_md
+
+        f = brim.File(simple_brim_file, mode='r+')
+        data = f.get_data()
+        md = data.get_metadata()
+
+        # Adding local metadata to missing experiment section
+        md.add(
+            brim.Metadata.Type.Experiment,
+            {'Temperature': brim.Metadata.Item(37.0, 'C')},
+            local=True,
+        )
+
+        exp_md = md.to_dict(brim.Metadata.Type.Experiment)
+        assert exp_md['Temperature'].value == 37.0
+        assert exp_md['Temperature'].units == 'C'
+        f.close()
+
 
 class TestMetadataValidationIntegration:
     """Integration tests ensuring Metadata.add uses validation logic."""
