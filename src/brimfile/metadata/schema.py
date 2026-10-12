@@ -150,6 +150,7 @@ METADATA_SCHEMA: dict[Type, tuple[MetadataField, ...]] = {
     Type.Acquisition: (
         MetadataField('Scanning_strategy', str, required=True, enum_type=ScanningStrategy, description=""),
         MetadataField('Acquisition_time', float, required=True, units_required=True, description="the time that takes to acquire a single ‘unit’, which is different depending on the scanning strategy (i.e. point, line, plane, A-line, etc.)"),
+        MetadataField('Origin', list[float], required=False, description="an array with 3 elements indicating the z, y, x absolute coordinates of the position where the acquisition started. Useful e.g. to define the physical position in a multi-well plate. As per general specs, it could be redifined in each Data_{n} group."),
     ),
     Type.Spectrometer: (
         MetadataField('IRF', list[float], required=False, description="a 1D array containing the impulse response function of the spectrometer. It must have an attribute ‘Frequency’ [float] (with the corresponding ‘Frequency_units’ [string]) of the same length, containing the frequency axis."),
