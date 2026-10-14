@@ -323,6 +323,108 @@ def test_get_raw_spectrum_in_image_with_calibration_fallback(empty_brim_file, sa
     f.close()
 
 
+def _build_data_with_calibration_line_and_analysis_results(
+    f, is_sparse, coor, sample_data, sample_data_sparse
+):
+    """Create a data group with raw data, a calibration spectral line and an analysis results group
+    (without any spectral line). Returns (data, analysis_results, rawdata, spectral_line_cal)."""
+    if is_sparse:
+        data = f.create_data_group_sparse(
+            sample_data_sparse["PSD"],
+            sample_data_sparse["frequency"],
+            scanning=sample_data_sparse["scanning"],
+        )
+        n_points = sample_data_sparse["PSD"].shape[0]
+        index = np.arange(n_points, dtype=np.int32) % 2
+        spectra = np.stack(
+            [sample_data_sparse["PSD"][0, :], sample_data_sparse["PSD"][1, :]], axis=0
+        )
+        shift = sample_data_sparse["shift"]
+        width = sample_data_sparse["width"]
+        rawdata = np.zeros((n_points, 2, 3), dtype=np.float32)
+        rawdata[int(data._spatial_map[coor])] = np.array([[30, 31, 32], [33, 34, 35]], dtype=np.float32)
+        expected_cal_idx = int(index[int(data._spatial_map[coor])])
+    else:
+        data = f.create_data_group(
+            sample_data["PSD"],
+            sample_data["frequency"],
+            sample_data["pixel_size"],
+        )
+        index = np.zeros(sample_data["dimensions"], dtype=np.int32)
+        index[coor] = 1
+        spectra = np.stack(
+            [sample_data["PSD"][0, 0, 0, :], sample_data["PSD"][1, 2, 3, :]], axis=0
+        )
+        shift = sample_data["shift"]
+        width = sample_data["width"]
+        rawdata = np.zeros((*sample_data["dimensions"], 2, 3), dtype=np.float32)
+        rawdata[coor] = np.array([[30, 31, 32], [33, 34, 35]], dtype=np.float32)
+        expected_cal_idx = 1
+    spv.add_rawdata(data, rawdata)
+
+    data.create_calibration_group(
+        index=index,
+        calibration_data=[{"spectra": spectra, "shift": 7.0, "shift_units": "GHz"}],
+    )
+    calibration = data.get_calibration()
+    spv.add_rawdata_calibration(calibration, np.arange(2 * 6, dtype=np.float32).reshape(2, 2, 3))
+    spectral_line_cal = np.array([[0, 1, 2, 3], [9, 8, 7, 6]], dtype=np.int32)
+    spv.add_calibration_spectral_line(calibration, spectral_line_cal, linewidth=0.8)
+
+    quantities = {"shift": shift, "shift_units": "GHz", "width": width, "width_units": "GHz"}
+    analysis_results = data.create_analysis_results_group(
+        quantities, quantities, fit_model=brim.Data.AnalysisResults.FitModel.Lorentzian
+    )
+    return data, analysis_results, rawdata, spectral_line_cal[expected_cal_idx]
+
+
+@pytest.mark.parametrize("is_sparse,coor", [(False, (1, 2, 3)), (True, (0, 0, 1))])
+def test_get_raw_spectrum_in_image_falls_back_to_calibration_when_analysis_results_has_no_line(
+    is_sparse, coor, empty_brim_file, sample_data, sample_data_sparse
+):
+    """If analysis_results is given but has no Spectral_line, the calibration spectral line is used."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data, analysis_results, rawdata, expected_line = _build_data_with_calibration_line_and_analysis_results(
+        f, is_sparse, coor, sample_data, sample_data_sparse
+    )
+    # the analysis results group must genuinely lack the dataset
+    assert not sync(f._file.object_exists(concatenate_paths(analysis_results._path, "Spectral_line")))
+
+    raw_spectrum, line, linewidth = spv.get_raw_spectrum_in_image(
+        data, coor, analysis_results=analysis_results
+    )
+
+    idx = int(data._spatial_map[coor]) if is_sparse else coor
+    np.testing.assert_array_equal(raw_spectrum, rawdata[idx])
+    np.testing.assert_array_equal(line, expected_line)
+    assert linewidth == 0.8
+
+    f.close()
+
+
+@pytest.mark.parametrize("is_sparse,coor", [(False, (1, 2, 3)), (True, (0, 0, 1))])
+def test_get_raw_spectrum_in_image_prefers_analysis_results_line_over_calibration(
+    is_sparse, coor, empty_brim_file, sample_data, sample_data_sparse
+):
+    """If analysis_results has a Spectral_line, it takes precedence over the calibration one."""
+    f = brim.File(empty_brim_file, mode="r+")
+    data, analysis_results, _, cal_line = _build_data_with_calibration_line_and_analysis_results(
+        f, is_sparse, coor, sample_data, sample_data_sparse
+    )
+    ar_line = np.array([100, 101, 102, 103], dtype=np.int32)
+    spv.add_analysis_results_spectral_line(analysis_results, ar_line, linewidth=0.3)
+
+    _, line, linewidth = spv.get_raw_spectrum_in_image(
+        data, coor, analysis_results=analysis_results
+    )
+
+    np.testing.assert_array_equal(line, ar_line)
+    assert not np.array_equal(line, cal_line)
+    assert linewidth == 0.3
+
+    f.close()
+
+
 @pytest.mark.parametrize(
     "is_sparse,coor",
     [(False, (1, 2, 3)), (True, (0, 0, 1))],

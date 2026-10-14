@@ -352,9 +352,15 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
     rawdata_arr = await data_group._file.open_dataset(concatenate_paths(data_group._path, brim_obj_names.data.raw_data, '2DArray_per_spectrum'))
     raw_spectrum_coro = _async_getitem(rawdata_arr, index +(...,))
     spectral_line_coro = None
+
+    read_from_analysis_results = False
     if analysis_results is not None:
+        read_from_analysis_results = await data_group._file.object_exists(concatenate_paths(analysis_results._path, "Spectral_line"))
+    if read_from_analysis_results:
+        # if analysis_results is provided and contains the spectral line dataset, we read the spectral line from there;
         spectral_line_coro = _get_spectral_line_in_image_from_analysis_results_async(analysis_results, index)
     else:
+        # otherwise, we attempt to read it from the calibration group
         try:
             calibration_group = await data_group.get_calibration_async()
             # TODO: decide what to do if there are multiple calibration materials (which one to select?)
