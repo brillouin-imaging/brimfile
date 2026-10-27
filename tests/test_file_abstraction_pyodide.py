@@ -6,7 +6,7 @@ Unlike the native zarr backend, this branch can only be exercised inside a
 real pyodide runtime wrapping the real `ZarrFile` class from
 `src/js/zarr_file.js`. These tests drive that combination via a small Node.js
 script (`tests/js/pyodide_driver.mjs`) that loads pyodide (npm package,
-pinned to 0.29.x -- see tests/js/package.json), mounts the repo's `src/`
+pinned to 314.0.x -- see tests/js/package.json), mounts the repo's `src/`
 directory into it, and executes a list of operations against
 `_AbstractFile(zarr_js, ...)`. All assertions happen here in Python.
 

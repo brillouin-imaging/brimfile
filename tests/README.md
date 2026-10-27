@@ -56,7 +56,7 @@ npm install
 
 This installs, under `tests/js/node_modules` (not tracked, isolated from
 `pyproject.toml`):
-- `pyodide` (pinned to the `0.29.x` minor version)
+- `pyodide` (pinned to the `314.0.x` minor version)
 - pinned local copies of `zarrita`, `@zarrita/storage`, and `fast-xml-parser`
   (the same packages `zarr_file.js` imports from a CDN at runtime; a custom
   Node ESM loader, `tests/js/loader.mjs`, redirects those CDN imports to these
