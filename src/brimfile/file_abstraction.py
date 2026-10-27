@@ -285,13 +285,7 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
         """"
         Synchronously run an asynchronous coroutine.
         """
-        loop = asyncio.get_event_loop()
-        task = loop.create_task(_awaitable_wrapper(coro))
-        # In Pyodide, we can't block the event loop, so instead we yield back
-        # control until the task is done.
-        while not task.done():
-            loop.run_until_complete(asyncio.sleep(0))
-        return task.result()
+        return pyodide.ffi.run_sync(coro)
 
     class _zarrFile:
         class ZarrArray:
