@@ -70,7 +70,7 @@ def _validate_singlepoint_vipa_data_group(
                 f"dimensions ({expected_spatial_dims} spatial + frequency), found shape {PSD_shape}."
             )
         ))
-    spatial_shape = PSD_shape[:-1]
+    spatial_shape = tuple(PSD_shape[:-1])
 
     def _validate_2d_raw_array(raw_array_node: dict, raw_array_path: str, *, expected_prefix: tuple[int, ...]) -> tuple[int | None, bool]:
         """Validate a 2DArray_per_spectrum array shape and dtype.
@@ -250,7 +250,7 @@ def _validate_singlepoint_vipa_data_group(
                     message=f"For subtype 'SinglePoint_VIPA_v0.1', '{raw_data_path}' must contain a '2DArray_per_spectrum' array."
                 ))
             else:
-                _validate_2d_raw_array(raw_data_node['2DArray_per_spectrum'], _2DArray_per_spectrum_path, expected_prefix=tuple(spatial_shape))
+                _validate_2d_raw_array(raw_data_node['2DArray_per_spectrum'], _2DArray_per_spectrum_path, expected_prefix=spatial_shape)
                 has_2d_feature_data = True
 
     calibration_group = node.get('Calibration', None)
