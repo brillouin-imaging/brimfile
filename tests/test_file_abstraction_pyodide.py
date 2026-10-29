@@ -159,6 +159,21 @@ class TestPyodideZarrFileParity:
         assert results[0]["value"] == expected_shape
         assert results[1]["value"] == expected_data
 
+    def test_get_points_matches_native(self, simple_brim_file, brim_file_url):
+        path = "Brillouin_data/Data_0/PSD"
+        f = brim.File(simple_brim_file)
+        ds = native_sync(f._file.open_dataset(path))
+        arr = np.asarray(ds)
+        f.close()
+        indices = [[1, 2, 3], [0, 0, 0], [1, 2, 3], [0, 1, 0]]
+        results = run_ops(
+            brim_file_url,
+            [{"method": "open_dataset", "args": [path], "post": "points", "indices": indices}],
+        )
+        assert results[0]["ok"] is True, results[0].get("error")
+        expected = np.stack([arr[tuple(i)] for i in indices])
+        np.testing.assert_allclose(np.asarray(results[0]["value"]), expected)
+
     def test_get_attr_missing_raises_keyerror(self, brim_file_url):
         results = run_ops(
             brim_file_url,

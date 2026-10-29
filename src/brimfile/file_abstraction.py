@@ -265,6 +265,55 @@ async def _async_getitem(obj, indices: tuple):
         else:
             raise ValueError(f"Object of type '{type(obj)}' does not support indexing and slicing.")
 
+async def _async_get_points(obj, indices) -> np.ndarray:
+    """
+    Read many points from an array, loading each chunk only once.
+
+    Args:
+        obj: Array supporting indexing (e.g., zarr.AsyncArray).
+        indices: sequence of N index tuples of k integers, addressing the first k dimensions of `obj`.
+    Returns:
+        np.ndarray of shape (N, *obj.shape[k:]), in the same order as `indices`.
+    """
+    idx = np.asarray(indices, dtype=int)
+    if idx.ndim != 2:
+        raise ValueError("'indices' must be a sequence of tuples of equal length")
+    n, k = idx.shape
+    rest = tuple(obj.shape[k:])
+    if n == 0:
+        return np.empty((0,) + rest)
+
+    if hasattr(obj, 'get_coordinate_selection'):
+        # zarr groups the coordinates by chunk. It requires one 1D array per dimension,
+        # so the trailing dimensions are expanded explicitly
+        n_rest = len(rest)
+        grids = [idx[:, d].reshape((n,) + (1,) * n_rest) for d in range(k)]
+        grids += [np.arange(r).reshape((1,) * (1 + j) + (r,) + (1,) * (n_rest - j - 1))
+                  for j, r in enumerate(rest)]
+        coords = tuple(g.ravel() for g in np.broadcast_arrays(*grids))
+        return np.asarray(await obj.get_coordinate_selection(coords)).reshape((n,) + rest)
+
+    # zarrita (pyodide) only supports slices: group the points by chunk and read each chunk once
+    chunks = np.array(obj.chunks[:k], dtype=int)
+    # group the points by chunk, so that each chunk is requested only once
+    uniq, inverse = np.unique(idx // chunks, axis=0, return_inverse=True)
+    inverse = inverse.reshape(-1)
+    shape = obj.shape
+
+    async def _read_chunk(c, rows):
+        start = c * chunks
+        region = tuple(slice(int(s), int(min(s + cs, dim)))
+                       for s, cs, dim in zip(start, chunks, shape))
+        block = np.asarray(await _async_getitem(obj, region + (...,)))
+        return rows, block[tuple((idx[rows] - start).T)]
+
+    parts = await asyncio.gather(
+        *[_read_chunk(c, np.flatnonzero(inverse == i)) for i, c in enumerate(uniq)])
+    out = np.empty((n,) + parts[0][1].shape[1:], dtype=parts[0][1].dtype)
+    for rows, values in parts:
+        out[rows] = values
+    return out
+
 def _gather_sync(*aws, return_exceptions: bool = False):
     """
     Sync version of asyncio.gather.
@@ -357,6 +406,12 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                     res = sync(self._zarr_js.get_array_shape(str(self.dts)))
                     self._shape = _zarrFile.JsProxy_to_py(res)
                     return self._shape
+            @property
+            def chunks(self):
+                if not hasattr(self, '_chunks'):
+                    res = sync(self._zarr_js.get_array_chunks(str(self.dts)))
+                    self._chunks = tuple(int(c) for c in _zarrFile.JsProxy_to_py(res))
+                return self._chunks
             @property
             def size(self):
                 return np.prod(self.shape)

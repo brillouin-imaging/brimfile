@@ -51,7 +51,7 @@ if '/repo_src' not in sys.path:
 
 import json
 import numpy as np
-from brimfile.file_abstraction import _AbstractFile, _async_getitem
+from brimfile.file_abstraction import _AbstractFile, _async_getitem, _async_get_points
 
 _f = _AbstractFile(zarr_js, filename="pyodide_test", version=None)
 
@@ -71,6 +71,8 @@ async def _run_ops(ops):
                 res = np.asarray(data).tolist()
             elif post == 'shape':
                 res = list(res.shape)
+            elif post == 'points':
+                res = np.asarray(await _async_get_points(res, op['indices'])).tolist()
             elif post == 'list':
                 res = list(res)
             elif post == 'sorted_list':

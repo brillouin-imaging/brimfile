@@ -10,7 +10,7 @@ import asyncio
 
 import warnings
 
-from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
+from .file_abstraction import FileAbstraction, sync, _async_getitem, _async_get_points, _gather_sync
 from .utils import concatenate_paths, list_objects_matching_pattern_async, get_object_name, set_object_name
 from .utils import np_array_to_smallest_int_type, _determine_chunk_size
 
@@ -405,6 +405,60 @@ class Data:
             frequency = np.broadcast_to(frequency, PSD.shape)
         return PSD, frequency, PSD_units, frequency_units
 
+    async def _get_spectra_async(self, indices: list[tuple[int, ...]]) -> list[tuple]:
+        """
+        Batched version of `_get_spectrum_async`, which loads each dataset (and chunk) only once.
+
+        Args:
+            indices (list[tuple[int, ...]]): tuples of 1 integer for sparse data or 3 (z, y, x) for non-sparse data.
+                Negative values correspond to no spectrum.
+        Returns:
+            list[tuple]: for each index, (PSD, frequency, PSD_units, frequency_units), or 4 None if there is no spectrum.
+        Raises:
+            IndexError: If an index is out of range for the PSD dataset.
+        """
+        n_spatial = 1 if self._sparse else 3
+        for idx in indices:
+            if len(idx) != n_spatial:
+                raise ValueError(f"Each index must contain {n_spatial} integer(s) for {'sparse' if self._sparse else 'non-sparse'} data.")
+        res = [(None, None, None, None)] * len(indices)
+        valid = [j for j, idx in enumerate(indices) if all(i >= 0 for i in idx)]
+        if len(valid) == 0:
+            return res
+        valid_idx = [indices[j] for j in valid]
+
+        PSD, frequency = await asyncio.gather(
+            self._file.open_dataset(concatenate_paths(
+                self._path, brim_obj_names.data.PSD)),
+            self._file.open_dataset(concatenate_paths(
+                self._path, brim_obj_names.data.frequency))
+        )
+        max_idx = np.max(np.asarray(valid_idx), axis=0)
+        if any(m >= PSD.shape[d] for d, m in enumerate(max_idx)):
+            raise IndexError(
+                f"index out of range for PSD with shape {PSD.shape}")
+
+        # the frequency dimensions are aligned to the trailing ones of the PSD (broadcasting rules),
+        # so only its first k_f dimensions (if any) are spatial
+        n_missing = PSD.ndim - frequency.ndim
+        k_f = max(0, n_spatial - n_missing)
+        if k_f > 0:
+            freq_coro = _async_get_points(
+                frequency, [idx[n_missing:n_spatial] for idx in valid_idx])
+        else:
+            freq_coro = _async_getitem(frequency, ...)
+        (PSD_units, frequency_units), PSD_vals, freq_vals = await asyncio.gather(
+            asyncio.gather(units.of_object(self._file, PSD),
+                           units.of_object(self._file, frequency)),
+            _async_get_points(PSD, valid_idx),
+            freq_coro
+        )
+        freq_vals = np.broadcast_to(np.asarray(freq_vals), PSD_vals.shape if k_f > 0 else PSD_vals.shape[1:])
+        for i, j in enumerate(valid):
+            res[j] = (PSD_vals[i], freq_vals[i] if k_f > 0 else freq_vals,
+                      PSD_units, frequency_units)
+        return res
+
     def get_spectrum_in_image(self, coor: tuple) -> tuple:
         """
         Retrieve a spectrum from the data group using spatial coordinates.
@@ -430,35 +484,55 @@ class Data:
         else:
             return self._get_spectrum(coor)
           
-    async def get_spectrum_and_all_quantities_in_image_async(self, ar: 'Data.AnalysisResults', coor: tuple, index_peak: int = 0) -> tuple[tuple, dict]:
+    async def get_spectrum_and_all_quantities_in_image_async(self, ar: 'Data.AnalysisResults', coors: tuple | list[tuple], index_peak: int = 0) -> tuple:
         """
-        Retrieve the spectrum and all available quantities from the analysis results at a specific spatial coordinate.
+        Retrieve the spectra and all available quantities from the analysis results at many spatial coordinates.
+        Each dataset (and chunk) involved is read only once, irrespectively of the number of coordinates,
+        which is much more efficient than retrieving the points one by one.
 
         Args:
             ar (Data.AnalysisResults): The analysis results object to retrieve quantities from.
-            coor (tuple): A tuple containing the z, y, x coordinates in the image.
+            coors (tuple | list[tuple]): A single tuple with the z, y, x coordinates in the image, or a list of such tuples.
             index_peak (int, optional): The index of the peak to retrieve (for multi-peak fits). Defaults to 0.
 
         Returns:
-            tuple: A tuple containing:
-                - spectrum (tuple): (PSD, frequency, PSD_units, frequency_units) at the specified coordinate
+            tuple: If `coors` is a single coordinate, a tuple containing:
+                - spectrum (tuple): (PSD, frequency, PSD_units, frequency_units) at the coordinate
                 - quantities (dict): Dictionary of Metadata.Item in the form result[quantity.name][peak.name]
+            If `coors` is a list, the same two elements are returned as lists with one entry per coordinate (in the same order as `coors`).
+            For coordinates without a spectrum (empty pixels of sparse data), the spectrum is a tuple of 4 None and the dictionary is empty.
         """
-        if len(coor) != 3:
-            raise ValueError("coor must contain 3 values for z, y, x")
-        index = coor
+        coors_arr = np.asarray(coors, dtype=int)
+        single = coors_arr.ndim == 1
+        if single:
+            coors_arr = coors_arr[np.newaxis, :]
+        if coors_arr.size == 0:
+            return [], []
+        if coors_arr.ndim != 2 or coors_arr.shape[1] != 3:
+            raise ValueError("coors must contain 3 values for z, y, x, or be a list of such tuples")
         if self._sparse:
-            index = int(self._spatial_map[coor])
-        spectrum, quantities = await asyncio.gather(
-            self._get_spectrum_async(index),
-            ar._get_all_quantities_at_index(index, index_peak)
+            if self._spatial_map is None:
+                raise ValueError("The data is defined as sparse, but no spatial mapping is provided.")
+            sparse_idx = np.asarray(self._spatial_map)[tuple(coors_arr.T)]
+            indices = [(int(i),) for i in sparse_idx]
+        else:
+            indices = [tuple(int(i) for i in c) for c in coors_arr]
+        valid = [j for j, idx in enumerate(indices) if all(i >= 0 for i in idx)]
+        spectra, valid_quantities = await asyncio.gather(
+            self._get_spectra_async(indices),
+            ar._get_all_quantities_at_indices([indices[j] for j in valid], index_peak)
         )
-        return spectrum, quantities
-    def get_spectrum_and_all_quantities_in_image(self, ar: 'Data.AnalysisResults', coor: tuple, index_peak: int = 0) -> tuple[tuple, dict]:
+        quantities = [{} for _ in indices]
+        for j, q in zip(valid, valid_quantities):
+            quantities[j] = q
+        if single:
+            return spectra[0], quantities[0]
+        return spectra, quantities
+    def get_spectrum_and_all_quantities_in_image(self, ar: 'Data.AnalysisResults', coors: tuple | list[tuple], index_peak: int = 0) -> tuple:
         """
         Synchronous wrapper for `get_spectrum_and_all_quantities_in_image_async` (see doc for `brimfile.data.Data.get_spectrum_and_all_quantities_in_image_async`)
         """
-        return sync(self.get_spectrum_and_all_quantities_in_image_async(ar, coor, index_peak))
+        return sync(self.get_spectrum_and_all_quantities_in_image_async(ar, coors, index_peak))
 
     def get_metadata(self):
         """

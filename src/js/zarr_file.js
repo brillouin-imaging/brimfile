@@ -230,6 +230,12 @@ class ZarrFile {
     return array.shape;
   }
 
+  async get_array_chunks(full_path){
+    await this.#wait_for_ready()
+    const array = await zarr.open.v3(this.root.resolve(full_path), { kind: "array" });
+    return array.chunks;
+  }
+
   async get_array_dtype(full_path){
     await this.#wait_for_ready()
     const array = await zarr.open.v3(this.root.resolve(full_path), { kind: "array" });

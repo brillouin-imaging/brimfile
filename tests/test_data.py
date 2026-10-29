@@ -388,7 +388,8 @@ class TestAnalysisResults:
         ar = data.get_analysis_results()
         
         coord = (0, 0, 0)
-        spectrum, quantities = data.get_spectrum_and_all_quantities_in_image(ar, coord)
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, [coord])
+        spectrum, quantities = spectra[0], qts[0]
         
         # Check spectrum tuple structure
         assert spectrum is not None
@@ -430,7 +431,8 @@ class TestAnalysisResults:
         ar = data.get_analysis_results()
         
         coord = (0, 0, 0)
-        spectrum, quantities = data.get_spectrum_and_all_quantities_in_image(ar, coord)
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, [coord])
+        spectrum, quantities = spectra[0], qts[0]
         
         # Check spectrum tuple structure
         assert spectrum is not None
@@ -474,8 +476,9 @@ class TestAnalysisResults:
         coord1 = (0, 0, 0)
         coord2 = (1, 2, 3)
         
-        spectrum1, quantities1 = data.get_spectrum_and_all_quantities_in_image(ar, coord1)
-        spectrum2, quantities2 = data.get_spectrum_and_all_quantities_in_image(ar, coord2)
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, [coord1, coord2])
+        spectrum1, spectrum2 = spectra
+        quantities1, quantities2 = qts
         
         # Spectra should be different at different coordinates
         PSD1, freq1, _, _ = spectrum1
@@ -498,8 +501,9 @@ class TestAnalysisResults:
         coord1 = (0, 0, 0)
         coord2 = (0, 1, 0)
         
-        spectrum1, quantities1 = data.get_spectrum_and_all_quantities_in_image(ar, coord1)
-        spectrum2, quantities2 = data.get_spectrum_and_all_quantities_in_image(ar, coord2)
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, [coord1, coord2])
+        spectrum1, spectrum2 = spectra
+        quantities1, quantities2 = qts
         
         # Spectra should be different at different coordinates
         PSD1, freq1, _, _ = spectrum1
@@ -520,7 +524,8 @@ class TestAnalysisResults:
         ar = data.get_analysis_results()
         
         coord = (0, 0, 0)
-        spectrum, quantities = data.get_spectrum_and_all_quantities_in_image(ar, coord)
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, [coord])
+        spectrum, quantities = spectra[0], qts[0]
         
         # Should work without specifying index_peak (defaults to 0)
         assert spectrum is not None
@@ -536,10 +541,45 @@ class TestAnalysisResults:
         
         coord = (0, 0, 0)
         # Explicitly pass index_peak=0
-        spectrum, quantities = data.get_spectrum_and_all_quantities_in_image(ar, coord, index_peak=0)
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, [coord], index_peak=0)
+        spectrum, quantities = spectra[0], qts[0]
         
         assert spectrum is not None
         assert quantities is not None
+        
+        f.close()
+
+    @pytest.mark.parametrize("fixture_name", ["simple_brim_file", "simple_brim_file_sparse"])
+    def test_single_point_returns_single_result(self, fixture_name, request):
+        """A single coordinate returns (spectrum, quantities) rather than lists."""
+        f = brim.File(request.getfixturevalue(fixture_name))
+        data = f.get_data()
+        ar = data.get_analysis_results()
+        spectrum, quantities = data.get_spectrum_and_all_quantities_in_image(ar, (0, 0, 0))
+        assert isinstance(spectrum, tuple) and len(spectrum) == 4
+        assert isinstance(quantities, dict)
+        f.close()
+
+    @pytest.mark.parametrize("fixture_name", ["simple_brim_file", "simple_brim_file_sparse"])
+    def test_spectra_and_quantities_many_points_match_single_points(self, fixture_name, request):
+        """Batched retrieval must give the same results as retrieving points one by one (in any order)."""
+        f = brim.File(request.getfixturevalue(fixture_name))
+        data = f.get_data()
+        ar = data.get_analysis_results()
+        
+        coords = [(1, 2, 3), (0, 0, 0), (1, 2, 3), (0, 1, 0)]
+        spectra, qts = data.get_spectrum_and_all_quantities_in_image(ar, coords)
+        assert len(spectra) == len(qts) == len(coords)
+        for c, spectrum, quantities in zip(coords, spectra, qts):
+            s1, q1 = data.get_spectrum_and_all_quantities_in_image(ar, [c])
+            for a, b in zip(spectrum[:2], s1[0][:2]):
+                np.testing.assert_array_equal(a, b)
+            assert spectrum[2:] == s1[0][2:]
+            assert quantities.keys() == q1[0].keys()
+            for qt_name, peaks in quantities.items():
+                for pt_name, item in peaks.items():
+                    np.testing.assert_allclose(item.value, q1[0][qt_name][pt_name].value)
+                    assert item.units == q1[0][qt_name][pt_name].units
         
         f.close()
 

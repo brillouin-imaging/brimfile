@@ -7,7 +7,7 @@ import warnings
 
 from enum import Enum
 
-from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
+from .file_abstraction import FileAbstraction, sync, _async_getitem, _async_get_points, _gather_sync
 from . import units
 from .utils import var_to_singleton, concatenate_paths, get_object_name
 from .constants import brim_obj_names
@@ -485,80 +485,70 @@ class AnalysisResults:
         return sync(self._get_all_quantities_at_index(index, index_peak))
     async def _get_all_quantities_at_index(self, index: int | tuple[int, int, int], index_peak: int = 0) -> dict:
         """
-        Retrieve all available quantities for a specific spatial index.
+        Single-point version of `_get_all_quantities_at_indices`.
+        """
+        index = index if isinstance(index, tuple) else (index,)
+        return (await self._get_all_quantities_at_indices([index], index_peak))[0]
+    async def _get_all_quantities_at_indices(self, indices: list[tuple[int, ...]], index_peak: int = 0) -> list[dict]:
+        """
+        Retrieve all available quantities for many spatial indices, reading each dataset (and chunk) only once.
         Args:
-            index (int) | tuple[int, int, int]: The spatial index to retrieve quantities for, which can be a tuple for non-sparse data.
+            indices (list[tuple[int, ...]]): The spatial indices; tuples of 1 integer for sparse data or 3 (z, y, x) for non-sparse data.
             index_peak (int, optional): The index of the data to retrieve, if multiple peaks are present (default is 0).
         Returns:
-            dict: A dictionary of Metadata.Item in the form `result[quantity.name][peak.name] = bls.Metadata.Item(value, units)`
+            list[dict]: One dictionary per index, in the form `result[quantity.name][peak.name] = bls.Metadata.Item(value, units)`
         """
-        async def _get_existing_quantity_at_index_async(self,  index: int | tuple[int, int, int], pt: AnalysisResults.PeakType = AnalysisResults.PeakType.AntiStokes):
-            as_cls = AnalysisResults
-            qts_ls = ()
-            dts_ls = ()
+        as_cls = AnalysisResults
+        n = len(indices)
 
+        async def _get_existing_quantities_async(pt: AnalysisResults.PeakType):
             qts = [qt for qt in as_cls.Quantity if qt not in (as_cls.Quantity.Elastic_contrast, as_cls.Quantity.Viscous_contrast)]
             coros = [self._file.open_dataset(concatenate_paths(self._path, as_cls._get_quantity_name(qt, pt, index_peak))) for qt in qts]
-            
             # open the datasets asynchronously, excluding those that do not exist
             opened_dts = await asyncio.gather(*coros, return_exceptions=True)
-            for i, opened_qt in enumerate(opened_dts):
-                if not isinstance(opened_qt, Exception):
-                    qts_ls += (qts[i],)
-                    dts_ls += (opened_dts[i],)
-            # get the values at the specified index
-            if isinstance(index, tuple):
-                index += (..., )
-            else:
-                index = (index, ...)
-            coros_values = [_async_getitem(dt, index) for dt in dts_ls]
-            coros_units = [units.of_object(self._file, dt) for dt in dts_ls]
-            ret_ls = await asyncio.gather(*coros_values, *coros_units)
-            n = len(coros_values)
-            value_ls = [Metadata.Item(ret_ls[i], ret_ls[n+i]) for i in range(n)]
-            return qts_ls, value_ls
+            found = [(qt, dt) for qt, dt in zip(qts, opened_dts) if not isinstance(dt, Exception)]
+            values, uns = await asyncio.gather(
+                asyncio.gather(*[_async_get_points(dt, indices) for _, dt in found]),
+                asyncio.gather(*[units.of_object(self._file, dt) for _, dt in found])
+            )
+            # qt -> (values with shape (n, ...), units)
+            return {qt: (v, u) for (qt, _), v, u in zip(found, values, uns)}
         antiStokes, stokes = await asyncio.gather(
-            _get_existing_quantity_at_index_async(self, index, AnalysisResults.PeakType.AntiStokes),
-            _get_existing_quantity_at_index_async(self, index, AnalysisResults.PeakType.Stokes)
+            _get_existing_quantities_async(as_cls.PeakType.AntiStokes),
+            _get_existing_quantities_async(as_cls.PeakType.Stokes)
         )
-        res = {}
+        res = [{} for _ in range(n)]
+        values_arrays = {}  # qt.name -> {peak.name: values with shape (n, ...)}
         # combine the results, including the average
-        for qt in (set(antiStokes[0]) | set(stokes[0])):
-            res[qt.name] = {}
-            pts = ()
-            #Stokes
-            if qt in stokes[0]:
-                res[qt.name][AnalysisResults.PeakType.Stokes.name] = stokes[1][stokes[0].index(qt)]
-                pts += (AnalysisResults.PeakType.Stokes,)
-            #AntiStokes
-            if qt in antiStokes[0]:
-                res[qt.name][AnalysisResults.PeakType.AntiStokes.name] = antiStokes[1][antiStokes[0].index(qt)]
-                pts += (AnalysisResults.PeakType.AntiStokes,)
+        for qt in (set(antiStokes) | set(stokes)):
+            per_peak = {}
+            if qt in stokes:
+                per_peak[as_cls.PeakType.Stokes] = stokes[qt]
+            if qt in antiStokes:
+                per_peak[as_cls.PeakType.AntiStokes] = antiStokes[qt]
+            pts = list(per_peak)
             #average getting the units of the first peak
-            res[qt.name][AnalysisResults.PeakType.average.name] = Metadata.Item(
-                np.mean([np.abs(res[qt.name][pt.name].value) for pt in pts]), 
-                res[qt.name][pts[0].name].units
-                )
-            if not all(res[qt.name][pt.name].units == res[qt.name][pts[0].name].units for pt in pts):
+            per_peak[as_cls.PeakType.average] = (
+                np.mean([np.abs(per_peak[pt][0]) for pt in pts], axis=0), per_peak[pts[0]][1])
+            if not all(per_peak[pt][1] == per_peak[pts[0]][1] for pt in pts):
                 warnings.warn(f"The units of {pts} are not consistent.")
+            values_arrays[qt.name] = {}
+            for pt, (vals, un) in per_peak.items():
+                values_arrays[qt.name][pt.name] = vals
+                for j in range(n):
+                    res[j].setdefault(qt.name, {})[pt.name] = Metadata.Item(vals[j], un)
 
-        if AnalysisResults.Quantity.Shift.name in res:
-            ec_name = AnalysisResults.Quantity.Elastic_contrast.name
-            for pt_name, item in res[AnalysisResults.Quantity.Shift.name].items():
+        # the contrasts are computed once for all the points
+        for qt, qt_contrast, compute, label in (
+                (as_cls.Quantity.Shift, as_cls.Quantity.Elastic_contrast, self._compute_elastic_contrast_async, 'elastic'),
+                (as_cls.Quantity.Width, as_cls.Quantity.Viscous_contrast, self._compute_viscous_contrast_async, 'viscous')):
+            for pt_name, vals in values_arrays.get(qt.name, {}).items():
                 try:
-                    ec = await self._compute_elastic_contrast_async(item.value)
-                    res.setdefault(ec_name, {})[pt_name] = Metadata.Item(ec, None)
+                    contrast = await compute(vals)
+                    for j in range(n):
+                        res[j].setdefault(qt_contrast.name, {})[pt_name] = Metadata.Item(contrast[j], None)
                 except Exception as e:
-                    warnings.warn(f"Error computing elastic contrast for {pt_name}: {e}")
-
-        if AnalysisResults.Quantity.Width.name in res:
-            vc_name = AnalysisResults.Quantity.Viscous_contrast.name
-            for pt_name, item in res[AnalysisResults.Quantity.Width.name].items():
-                try:
-                    vc = await self._compute_viscous_contrast_async(item.value)
-                    res.setdefault(vc_name, {})[pt_name] = Metadata.Item(vc, None)
-                except Exception as e:
-                    warnings.warn(f"Error computing viscous contrast for {pt_name}: {e}")
+                    warnings.warn(f"Error computing {label} contrast for {pt_name}: {e}")
         return res
 
     @classmethod
