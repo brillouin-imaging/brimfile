@@ -31,8 +31,8 @@ classifiers = [
 ]
 keywords = ["Brillouin microscopy"]
 dependencies = [
-  "numpy",
-  "zarr >= 3.1.1"
+  "zarr >= 3.1.1",
+  "numpy"
 ]
 
 [project.optional-dependencies]

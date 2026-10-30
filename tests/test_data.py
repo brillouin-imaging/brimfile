@@ -703,3 +703,194 @@ class TestSparseDataConsistency:
         assert pars_names is None or isinstance(pars_names, (list, np.ndarray))
         f.close()
 
+
+
+class TestInterpolateSpectra:
+    """Tests for Data.interpolate_spectra (pure numpy, no file needed)."""
+
+    interp = staticmethod(brim.Data.interpolate_spectra)
+
+    @staticmethod
+    def _linear_case(shape=(3, 4, 10)):
+        # PSD = 2 * frequency, so linear interpolation is exact inside the range
+        freq = np.linspace(0, 9, shape[-1])
+        PSD = np.broadcast_to(2 * freq, shape).copy()
+        return PSD, freq
+
+    # ---- valid inputs ----
+    def test_1d_psd_no_new_frequency_returns_inputs(self):
+        PSD, freq = self._linear_case((10,))
+        out_psd, out_freq = self.interp(PSD, freq)
+        np.testing.assert_array_equal(out_psd, PSD)
+        np.testing.assert_array_equal(out_freq, freq)
+
+    def test_1d_frequency_no_new_frequency_returns_inputs_unchanged(self):
+        PSD, freq = self._linear_case((3, 10))
+        out_psd, out_freq = self.interp(PSD, freq)
+        assert out_psd is PSD
+        assert out_freq is freq
+
+    def test_new_frequency_values_1d_shared(self):
+        PSD, freq = self._linear_case((2, 3, 10))
+        new_f = np.linspace(1, 8, 10)
+        out_psd, out_freq = self.interp(PSD, freq, new_frequency=new_f)
+        np.testing.assert_allclose(out_psd, np.broadcast_to(2 * new_f, PSD.shape))
+        assert out_freq.shape == new_f.shape
+
+    def test_per_spectrum_frequency_without_new_frequency(self):
+        # the generated frequency is the mean of the per-spectrum frequencies
+        base = np.linspace(0, 9, 10)
+        freq = np.stack([base, base + 1, base + 2])  # (3, 10)
+        PSD = 2 * freq
+        out_psd, out_freq = self.interp(PSD, freq)
+        np.testing.assert_allclose(out_freq, base + 1)
+        assert out_psd.shape == PSD.shape
+        for i in range(3):
+            expected = np.interp(out_freq, freq[i], PSD[i])
+            np.testing.assert_allclose(out_psd[i], expected)
+
+    def test_generated_frequency_is_mean_over_all_leading_dims(self):
+        base = np.linspace(0, 9, 10)
+        offsets = np.arange(6, dtype=float).reshape(2, 3, 1)
+        freq = base + offsets  # (2, 3, 10)
+        out_psd, out_freq = self.interp(2 * freq, freq)
+        assert out_freq.shape == (10,)
+        np.testing.assert_allclose(out_freq, base + offsets.mean())
+        assert out_psd.shape == freq.shape
+
+    def test_generated_frequency_uses_sorted_frequency(self):
+        base = np.linspace(0, 9, 10)
+        freq = np.stack([base[::-1], base + 2])
+        _, out_freq = self.interp(2 * freq, freq)
+        np.testing.assert_allclose(out_freq, base + 1)
+
+    def test_generated_frequency_from_broadcast_frequency(self):
+        # a (1, n) frequency broadcast to a larger PSD averages to itself
+        base = np.linspace(0, 9, 10)
+        PSD = np.ones((4, 10))
+        out_psd, out_freq = self.interp(PSD, base[None, :])
+        np.testing.assert_allclose(out_freq, base)
+        np.testing.assert_allclose(out_psd, PSD)
+
+    def test_per_spectrum_new_frequency(self):
+        base = np.linspace(0, 9, 10)
+        freq = np.stack([base, base + 1])  # (2, 10)
+        PSD = 2 * freq
+        new_f = np.stack([np.linspace(2, 7, 10), np.linspace(3, 8, 10)])
+        out_psd, out_freq = self.interp(PSD, freq, new_frequency=new_f)
+        assert out_freq.shape == new_f.shape
+        np.testing.assert_allclose(out_psd, 2 * new_f)
+
+    def test_new_frequency_fewer_dims_broadcast(self):
+        PSD, freq = self._linear_case((2, 3, 10))
+        new_f = np.linspace(1, 8, 10)[None, :]  # (1, 10)
+        out_psd, out_freq = self.interp(PSD, freq, new_frequency=new_f)
+        assert out_freq.shape == (1, 10)
+        np.testing.assert_allclose(out_psd, np.broadcast_to(2 * new_f, PSD.shape))
+
+    def test_out_of_range_uses_endpoint_values(self):
+        PSD, freq = self._linear_case((10,))
+        new_f = np.array([-5.0, 100.0] + [4.0] * 8)
+        out_psd, _ = self.interp(PSD, freq, new_frequency=new_f)
+        assert out_psd[0] == PSD[0]
+        assert out_psd[1] == PSD[-1]
+
+    # ---- frequency validation ----
+    def test_frequency_with_duplicates_is_accepted(self):
+        PSD = np.ones((2, 5))
+        freq = np.array([0, 1, 1, 2, 3.0])
+        out_psd, _ = self.interp(PSD, freq, new_frequency=np.arange(5.0))
+        np.testing.assert_allclose(out_psd, 1.0)
+
+    def test_decreasing_frequency_is_sorted(self):
+        freq = np.arange(10.0)
+        PSD = np.broadcast_to(2 * freq, (3, 10))
+        new_f = np.linspace(1, 8, 10)
+        out_psd, _ = self.interp(PSD[:, ::-1], freq[::-1], new_frequency=new_f)
+        np.testing.assert_allclose(out_psd, np.broadcast_to(2 * new_f, (3, 10)))
+
+    def test_unsorted_frequency_is_sorted_with_psd(self):
+        rng = np.random.default_rng(0)
+        freq = np.linspace(0, 9, 10)
+        perm = rng.permutation(10)
+        new_f = np.linspace(1, 8, 10)
+        out_psd, _ = self.interp(2 * freq[perm][None, :].repeat(2, 0), freq[perm], new_frequency=new_f)
+        np.testing.assert_allclose(out_psd, np.broadcast_to(2 * new_f, (2, 10)))
+
+    def test_per_spectrum_unsorted_frequency_without_new_frequency(self):
+        base = np.linspace(0, 9, 10)
+        freq = np.stack([base[::-1], base])  # first row decreasing
+        PSD = 2 * freq
+        out_psd, out_freq = self.interp(PSD, freq)
+        np.testing.assert_allclose(out_freq, base)
+        np.testing.assert_allclose(out_psd, np.broadcast_to(2 * base, (2, 10)))
+
+    def test_sorting_does_not_modify_inputs(self):
+        freq = np.arange(10.0)[::-1].copy()
+        PSD = np.broadcast_to(2 * freq, (2, 10)).copy()
+        freq_c, PSD_c = freq.copy(), PSD.copy()
+        self.interp(PSD, freq, new_frequency=np.linspace(1, 8, 10))
+        np.testing.assert_array_equal(freq, freq_c)
+        np.testing.assert_array_equal(PSD, PSD_c)
+
+    def test_frequency_non_finite(self):
+        PSD = np.ones((2, 5))
+        freq = np.array([0, 1, 2, 3, np.inf])
+        with pytest.raises(ValueError):
+            self.interp(PSD, freq, new_frequency=np.arange(5.0))
+        freq = np.array([0, 1, 2, np.nan, 4.0])
+        with pytest.raises(ValueError):
+            self.interp(PSD, freq, new_frequency=np.arange(5.0))
+
+    # ---- shape mismatches: frequency vs PSD ----
+    @pytest.mark.parametrize("psd_shape, freq_shape", [
+        ((3, 4), (5,)),         # last axis differs
+        ((3, 4), (2, 4)),       # leading axis differs
+        ((3, 4), (3, 5)),       # same ndim, last axis differs
+        ((4,), (3, 4)),         # frequency has more dims than PSD
+        ((2, 3, 4), (2, 4, 4)), # middle axis differs
+        ((2, 3, 4), (3,)),      # 1D mismatch in 3D PSD
+    ])
+    def test_frequency_not_broadcastable_to_psd(self, psd_shape, freq_shape):
+        PSD = np.ones(psd_shape)
+        freq = np.broadcast_to(np.arange(freq_shape[-1], dtype=float), freq_shape)
+        with pytest.raises(ValueError, match="broadcastable"):
+            self.interp(PSD, freq, new_frequency=np.linspace(0, 1, psd_shape[-1]))
+
+    @pytest.mark.parametrize("psd_shape, freq_shape", [
+        ((3, 4), (4,)),
+        ((3, 4), (3, 4)),
+        ((2, 3, 4), (3, 4)),
+        ((2, 3, 4), (2, 3, 4)),
+    ])
+    def test_frequency_broadcastable_shapes_accepted(self, psd_shape, freq_shape):
+        PSD = np.ones(psd_shape)
+        freq = np.broadcast_to(np.arange(freq_shape[-1], dtype=float), freq_shape)
+        out_psd, _ = self.interp(PSD, freq, new_frequency=np.linspace(0, 3, 4))
+        assert out_psd.shape == psd_shape
+
+    # ---- shape mismatches: new_frequency vs PSD ----
+    @pytest.mark.parametrize("psd_shape, new_shape", [
+        ((3, 4), (5,)),          # last axis differs
+        ((3, 4), (2, 4)),        # leading axis differs
+        ((3, 4), (3, 5)),        # same ndim, last axis differs
+        ((4,), (3, 4)),          # more dims than PSD
+        ((3, 4), (2, 3, 4)),     # more dims than PSD
+        ((2, 3, 4), (2, 4)),     # middle axis differs
+        ((2, 3, 4), (5,)),
+        ((1, 4), (3, 4)),        # broadcasts to a larger shape than PSD
+    ])
+    def test_new_frequency_incompatible_shape(self, psd_shape, new_shape):
+        PSD = np.ones(psd_shape)
+        freq = np.arange(psd_shape[-1], dtype=float)
+        new_f = np.zeros(new_shape)
+        with pytest.raises(ValueError):
+            self.interp(PSD, freq, new_frequency=new_f)
+
+    def test_new_frequency_non_finite(self):
+        PSD = np.ones((2, 4))
+        freq = np.arange(4.0)
+        for bad in (np.nan, np.inf):
+            new_f = np.array([0, 1, bad, 3.0])
+            with pytest.raises(ValueError, match="finite"):
+                self.interp(PSD, freq, new_frequency=new_f)
