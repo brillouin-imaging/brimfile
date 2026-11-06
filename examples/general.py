@@ -161,7 +161,13 @@ if __name__ == "__main__":
     assert img[coord]==qt_at_px
 
     # get the spectrum in the image at a specific pixel (coord)
-    PSD, frequency, PSD_units, frequency_units = d.get_spectrum_in_image(coord)    
+    PSD, frequency, PSD_units, frequency_units = d.get_spectrum_in_image(coord)   
+
+    # get all the spectra
+    PSD, frequency, PSD_units, frequency_units = d.get_PSD_as_spatial_map()
+    # interpolate the spectra to a common frequency axis,
+    # in case the frequency axis is not the same for all spectra
+    PSD, frequency = brim.Data.interpolate_spectra(PSD, frequency)
 
     f.close()
     

@@ -308,9 +308,11 @@ class Data:
                 dimensions. If omitted, a new frequency array is generated.
 
         Returns:
-            A tuple of the interpolated spectra and the target frequencies.
-            When ``new_frequency`` is supplied, it is returned in its original
-            shape; when generated, the returned array is 1D.
+            A tuple of the spectra and the target frequencies. The spectra
+            retain the original ``PSD`` dtype when no interpolation is done;
+            otherwise, they have dtype ``float64``. When ``new_frequency`` is
+            supplied, it is returned in its original shape; when generated,
+            the returned array is 1D.
 
         Raises:
             ValueError: If frequencies are non-finite, or either frequency array
@@ -350,7 +352,7 @@ class Data:
                 raise ValueError("`new_frequency` must have the same number of dimensions as PSD or be 1D.") from e
 
         # Interpolate each spectrum in the PSD along the last axis
-        interpolated_PSD = np.empty_like(PSD)
+        interpolated_PSD = np.empty_like(PSD, dtype=np.float64)
         interp_freq = np.broadcast_to(new_frequency, PSD.shape)
         for idx in itertools.product(*[range(s) for s in PSD.shape[:-1]]):
             interpolated_PSD[idx] = np.interp(interp_freq[idx], frequency[idx], PSD[idx])
