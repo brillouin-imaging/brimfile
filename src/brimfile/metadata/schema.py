@@ -208,12 +208,16 @@ def schema_as_string(
             type_width = max(min_type_width, int(available_for_dynamic * 0.55))
             description_width = max(min_description_width, available_for_dynamic - type_width)
         elif type_width is None:
+            assert description_width is not None # The preceding case ruled out both widths being None.
             description_width = max(min_description_width, description_width)
             type_width = max(min_type_width, available_for_dynamic - description_width)
         elif description_width is None:
+            assert type_width is not None # The preceding conditions ruled out type_width being None.
             type_width = max(min_type_width, type_width)
             description_width = max(min_description_width, available_for_dynamic - type_width)
         else:
+            # The prior branches handle each case where either width is None.
+            assert type_width is not None and description_width is not None
             type_width = max(min_type_width, type_width)
             description_width = max(min_description_width, description_width)
 
@@ -239,6 +243,8 @@ def schema_as_string(
         else:
             type_width = max(min_type_width, min(type_width, available_for_type))
 
+    # Each sizing path assigns type_width when no caller-supplied width exists.
+    assert type_width is not None
     lines: list[str] = []
 
     for section_type, fields in sections.items():
@@ -246,6 +252,8 @@ def schema_as_string(
         lines.append(section_type.value)
         lines.append("-" * len(section_type.value))
         if include_description:
+            # Description sizing runs whenever the description column is enabled.
+            assert description_width is not None
             lines.append(
                 f"{'Attribute':<{attr_width}} {'Type':<{type_width}} {'Mandatory':<{mandatory_width}} {'Description':<{description_width}}"
             )
@@ -265,8 +273,9 @@ def schema_as_string(
             mandatory_label = "yes" if field.required else "no"
             wrapped_type = textwrap.wrap(type_label, width=type_width) or [type_label]
             if include_description:
+                # This branch also requires the description-sizing path above.
+                assert description_width is not None
                 description_label = field.description or ""
-                description_width = int(description_width)
                 wrapped_description = textwrap.wrap(description_label, width=description_width) or [""]
                 line_count = max(len(wrapped_type), len(wrapped_description))
                 for i in range(line_count):

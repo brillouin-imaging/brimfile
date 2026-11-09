@@ -67,7 +67,7 @@ def _find_close_normalized_matches(
 
 def _coerce_enum(
     enum_type: type[MetadataEnum],
-    value: MetadataEnum | Enum |str,
+    value: MetadataValue,
 ) -> MetadataEnum:
     """Convert input to an enum member using fuzzy matching with difflib.
 
@@ -182,7 +182,7 @@ def validate_single_field(
     validity : MetadataItemValidity = MetadataItemValidity.VALID
 
     # Get the metadata field from the schema if it exists
-    field: MetadataField = next((f for f in METADATA_SCHEMA[metadata_type] if _normalize_token(f.name) == _normalize_token(field_name)), None)
+    field: MetadataField | None = next((f for f in METADATA_SCHEMA[metadata_type] if _normalize_token(f.name) == _normalize_token(field_name)), None)
     if field is not None:
         if field.name != field_name:
             validity = MetadataItemValidity.LIKELY_TYPO

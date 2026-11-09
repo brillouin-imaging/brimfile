@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Any, TypeAlias
+
 from ..file_abstraction import FileAbstraction, sync, _gather_sync
 from . import schema, validation
-from .types import MetadataItem
+from .types import MetadataItem, MetadataItemValidity
 
 from .. import units
 from ..constants import brim_obj_names, reserved_attr_names
 
-import warnings
-
-import asyncio
+import warnings, numbers, asyncio
 
 
 class Metadata:
@@ -21,10 +23,10 @@ class Metadata:
     metadata takes precedence over general metadata for the same field.
     """
 
-    Item = MetadataItem
-    Type = schema.Type
+    Item: TypeAlias = MetadataItem
+    Type: TypeAlias = schema.Type
 
-    def __init__(self, file: FileAbstraction, data_full_path: str = None):
+    def __init__(self, file: FileAbstraction, data_full_path: str | None = None) -> None:
         """
         Initialize the Metadata object.
         Args:
@@ -33,28 +35,28 @@ class Metadata:
         """
         self._file = file
         self._path = brim_obj_names.Brillouin_base_path
-        self._general_metadata = None
+        self._general_metadata: dict[str, Any] | None = None
         self._data_path = data_full_path
 
         #### version aware code ####
       
         if self._file.version is None:
             # use latest version if the file version is not defined
-            self._load_local_metadata = self._load_local_metadata_v0_2
-            self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2
-            self.add = self.add_v0_2
+            self._load_local_metadata = self._load_local_metadata_v0_2  # type: ignore[method-assign]
+            self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2  # type: ignore[method-assign]
+            self.add = self.add_v0_2  # type: ignore[method-assign]
         else:
             match self._file.version:
                 case (0, 1, _):
-                    self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_1
-                    self.add = self.add_v0_1
+                    self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_1  # type: ignore[method-assign]
+                    self.add = self.add_v0_1  # type: ignore[method-assign]
                 case (0, 2, _):
-                    self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2
-                    self._load_local_metadata = self._load_local_metadata_v0_2
-                    self.add = self.add_v0_2
+                    self._load_local_metadata_of_type = self._load_local_metadata_of_type_v0_2  # type: ignore[method-assign]
+                    self._load_local_metadata = self._load_local_metadata_v0_2  # type: ignore[method-assign]
+                    self.add = self.add_v0_2  # type: ignore[method-assign]
 
     @staticmethod
-    def _raw_dict_to_MetadataItem_dict(raw_dict: dict) -> dict:
+    def _raw_dict_to_MetadataItem_dict(raw_dict: dict[str, Any]) -> dict[str, MetadataItem]:
         """
         Convert a dictionary of raw metadata values (as read from the file)
         to a dictionary of MetadataItem objects.
@@ -65,7 +67,7 @@ class Metadata:
         Returns:
             dict: A dictionary containing MetadataItem objects, e.g. {"Temperature": MetadataItem(24, "C")}.
         """
-        out_dict = {}
+        out_dict: dict[str, MetadataItem] = {}
         for key in raw_dict.keys():
             if key not in reserved_attr_names:
                 if not key.endswith('_units'):
@@ -74,7 +76,7 @@ class Metadata:
         return out_dict
 
     @staticmethod
-    def _MetadataItem_dict_to_raw_dict(mi_dict: dict) -> dict:
+    def _MetadataItem_dict_to_raw_dict(mi_dict: dict[str, MetadataItem]) -> dict[str, Any]:
         """
         Convert a dictionary of MetadataItem objects to a dictionary of raw metadata values (as to be written to the file).
         Args:
@@ -82,7 +84,7 @@ class Metadata:
         Returns:
             dict: A dictionary containing raw metadata values, e.g. {"Temperature": 24, "Temperature_units": "C"}.        
         """
-        out_dict = {}
+        out_dict: dict[str, Any] = {}
         for key, value in mi_dict.items():
             if not isinstance(value, MetadataItem):
                 value = MetadataItem(value, None)
@@ -91,7 +93,7 @@ class Metadata:
                 out_dict[f"{key}_units"] = value.units
         return out_dict
     
-    async def _load_local_metadata(self) -> dict:
+    async def _load_local_metadata(self) -> dict[str, Any]:
         """
         Load the local metadata from the data group.
         Returns:
@@ -102,11 +104,11 @@ class Metadata:
         raise NotImplementedError(
             f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
 
-    async def _load_local_metadata_v0_2(self):
+    async def _load_local_metadata_v0_2(self) -> dict[str, Any]:
         """
            See documentation of _load_local_metadata for details.      
         """
-        out_dict = {}
+        out_dict: dict[str, Any] = {}
         if self._data_path is not None:
             # TODO: implement reading _arrays
             try:
@@ -116,7 +118,7 @@ class Metadata:
                 pass
         return out_dict
 
-    async def _load_local_metadata_of_type(self, type: Type) -> dict:
+    async def _load_local_metadata_of_type(self, type: Type) -> dict[str, MetadataItem]:
         """
         Load the metadata of a specific type from the data group.
         This method is version-aware and must be overridden by version-specific implementation.
@@ -129,22 +131,22 @@ class Metadata:
         raise NotImplementedError(
             f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
 
-    async def _load_local_metadata_of_type_v0_2(self, type: Type) -> dict:
+    async def _load_local_metadata_of_type_v0_2(self, type: Type) -> dict[str, MetadataItem]:
         """
         See documentation of _load_local_metadata_of_type for details.
         """
-        out_dict = {}
+        out_dict: dict[str, MetadataItem] = {}
         metadata = await self._load_local_metadata_v0_2()
         # read only the attributes of the specific type 
         metadata = metadata.get(type.value, {})
         out_dict = self._raw_dict_to_MetadataItem_dict(metadata)
         
         return out_dict
-    async def _load_local_metadata_of_type_v0_1(self, type: Type) -> dict:
+    async def _load_local_metadata_of_type_v0_1(self, type: Type) -> dict[str, MetadataItem]:
         """
         See documentation of _load_local_metadata_of_type for details.
         """
-        out_dict = {}
+        out_dict: dict[str, MetadataItem] = {}
         if self._data_path is not None:
             attrs = await self._file.list_attributes(self._data_path)
             group = f"{type.value}."
@@ -159,7 +161,7 @@ class Metadata:
                 out_dict[attr[len(group):]] = MetadataItem(val, u)
         return out_dict
     
-    async def _load_general_metadata(self, *,  create_if_missing: bool = False) -> dict:
+    async def _load_general_metadata(self, *,  create_if_missing: bool = False) -> dict[str, Any]:
         """
         Load the general metadata from the file's root attributes.
         If the general metadata has already been loaded, it returns a copy of the cached metadata.
@@ -174,7 +176,7 @@ class Metadata:
         # TODO: implement handling of _arrays
         if self._general_metadata is not None:
             return self._general_metadata.copy()   
-        metadata_dict = {}
+        metadata_dict: dict[str, Any] = {}
         try:
             metadata_dict = await self._file.get_attr(self._path, 'Metadata')
         except Exception:
@@ -209,7 +211,7 @@ class Metadata:
         if name not in metadata_dict:
             raise KeyError(
                 f"Metadata attribute {type.value}.{name} not found.")
-        return metadata_dict.get(name)
+        return metadata_dict[name]
 
     def __getitem__(self, key: str) -> Item:
         """
@@ -234,16 +236,16 @@ class Metadata:
         if group not in Metadata.Type.__members__:
             raise KeyError(
                 f"Group {group} not valid. It must be one of {list(Metadata.Type.__members__)}")
-        return sync(self._get_single_item(Metadata.Type[group], obj))
+        return sync(self._get_single_item(schema.Type[group], obj))
 
     def to_dict(self, type: Type, *, 
-                validate: bool = False, include_missing: bool = False) -> dict:
+                validate: bool = False, include_missing: bool = False) -> dict[str, MetadataItem]:
         """
         Returns the metadata of a specific type as a dictionary. See doc of `to_dict_async`.
         """
         return sync(self.to_dict_async(type, validate=validate, include_missing=include_missing))
     async def to_dict_async(self, type: Type, *, 
-                            validate: bool = False, include_missing: bool = False) -> dict | tuple[dict]:
+                            validate: bool = False, include_missing: bool = False) -> dict[str, MetadataItem]:
         """
         Returns the metadata of a specific type as a dictionary.
         This method attempts to fetch a metadata attribute based on the specified type and name.
@@ -282,11 +284,11 @@ class Metadata:
             schema_attrs = [field.name for field in schema.METADATA_SCHEMA[type] if field.required]
             for attr in schema_attrs:
                 if attr not in out_dict:
-                    out_dict[attr] = MetadataItem(None, None, validity=validation.MetadataItemValidity.MISSING_FIELD)
+                    out_dict[attr] = MetadataItem(None, None, validity=MetadataItemValidity.MISSING_FIELD)
 
         return out_dict
 
-    def add(self, type: Type, metadata: dict[str, Item], local: bool = False):
+    def add(self, type: Type, metadata: dict[str, Item], local: bool = False) -> None:
         """
         Add metadata to the file.
         Call `brimfile.metadata.schema.print_schema()` to see the list of available metadata attributes and their description.
@@ -301,7 +303,7 @@ class Metadata:
         raise NotImplementedError(
             f"The add method is not implemented for this version {self._file.version} .brim file. Please use a version-specific implementation.")
 
-    def add_v0_1(self, type: Type, metadata: dict[str, Item], local: bool = False):
+    def add_v0_1(self, type: Type, metadata: dict[str, Item], local: bool = False) -> None:
         """
         See documentation of add() for details.
         """
@@ -332,7 +334,7 @@ class Metadata:
             self._general_metadata = general_metadata
             sync(self._file.create_attr(self._path, 'Metadata', general_metadata))
     
-    def add_v0_2(self, type: Type, metadata: dict[str, Item], local: bool = False):
+    def add_v0_2(self, type: Type, metadata: dict[str, Item], local: bool = False) -> None:
         """
         See documentation of add() for details.
         """
@@ -340,7 +342,7 @@ class Metadata:
         if local and self._data_path is None:
             raise ValueError(
                 "The current metadata object is not linked to a data group. Set local to False to add the metadata to the general metadata group.")
-        out_dict = {}     
+        out_dict: dict[str, MetadataItem] = {}     
         # iterate over the metadata dictionary to validate each attribute
         for key, value in metadata.items():
             if not isinstance(value, MetadataItem):
@@ -366,7 +368,7 @@ class Metadata:
             sync(self._file.create_attr(self._path, 'Metadata', general_metadata))
 
     def all_to_dict(self, *, 
-                    validate: bool = False, include_missing: bool = False) -> dict:
+                    validate: bool = False, include_missing: bool = False) -> dict[str, dict[str, MetadataItem]]:
         """
         Returns all the metadata as a dictionary.
         Returns:
@@ -396,6 +398,8 @@ class Metadata:
                 Exception: If the wavelength metadata cannot be retrieved or if the unit is not recognized.
         """
         wl = await self._get_single_item(Metadata.Type.Optics, 'Wavelength')
+        if not isinstance(wl.value, numbers.Number):
+            raise TypeError(f"Wavelength value must be a number, got {type(wl.value).__name__}.")
         if wl.units is None:
             warnings.warn(f"Wavelength metadata has no units defined. Assuming the value is in nm.")
             return float(wl.value)
@@ -419,6 +423,8 @@ class Metadata:
                 Exception: If the temperature metadata cannot be retrieved or if the unit is not recognized.
         """    
         t = await self._get_single_item(Metadata.Type.Experiment, 'Temperature')       
+        if not isinstance(t.value, numbers.Number):
+            raise TypeError(f"Temperature value must be a number, got {type(t.value).__name__}.")
         if t.units is None:
             warnings.warn(f"Temperature metadata has no units defined. Assuming the value is in Celsius.")
             return float(t.value)
@@ -440,6 +446,8 @@ class Metadata:
                 Exception: If the scattering angle metadata cannot be retrieved or if the unit is not recognized.
         """
         sa = await self._get_single_item(Metadata.Type.Brillouin, 'Scattering_angle')
+        if not isinstance(sa.value, numbers.Number):
+            raise TypeError(f"Scattering angle value must be a number, got {type(sa.value).__name__}.")
         if sa.units is None:
             warnings.warn(f"Scattering angle metadata has no units defined. Assuming the value is in degrees.")
             return float(sa.value)
