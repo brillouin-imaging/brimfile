@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from enum import StrEnum
 from operator import index
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Any, NewType
+    _Node = NewType('_Node', dict[str, Any])
 
 _NUMERIC_DTYPE_ALIASES = {
     'int', 'uint', 'float', 'complex',
@@ -20,12 +25,12 @@ class _NodeType(StrEnum):
     GROUP = 'group'
     ARRAY = 'array'
 
-def broadcast_shapes(*shapes: object) -> tuple[int, ...]:
+def broadcast_shapes(*shapes: Sequence[int]) -> tuple[int, ...]:
     """Broadcast multiple shapes using NumPy broadcasting rules."""
     if not shapes:
         return ()
     
-    def _normalize_shape(shape: object, *, arg_index: int) -> tuple[int, ...]:
+    def _normalize_shape(shape: Sequence[int], *, arg_index: int) -> tuple[int, ...]:
         """Validate and normalize a single shape argument."""
         try:
             dims = tuple(shape)
@@ -121,16 +126,25 @@ def is_numeric_dtype(dtype: str) -> bool:
     return False
 
 
-def get_node_type(node: dict) -> _NodeType | None:
-    return node.get('node_type', None)
+def get_node_type(node: _Node) -> _NodeType | None:
+    node_type = node.get('node_type', None)
+    if node_type is not None:
+        try:
+            node_type = _NodeType(node_type)
+        except ValueError:
+            raise ValueError(f"Invalid node_type: {node_type!r}. Must be one of: {list(_NodeType)}")
+    return node_type
 
 
-def get_array_shape_and_dtype(node: dict) -> tuple[tuple[int, ...] | None, str | None]:
+def get_array_shape_and_dtype(node: dict[str, Any]) -> tuple[Sequence[int] | None, str | None]:
     return node.get('shape', None), node.get('dtype', None)
 
 
-def get_attributes(node: dict) -> dict | None:
-    return node.get('attributes', None)
+def get_attributes(node: _Node) -> dict[str, Any] | None:
+    attrs: dict[str, Any] | None = node.get('attributes', None)
+    if attrs is not None and not isinstance(attrs, dict):
+        raise TypeError(f"Node attributes must be a dictionary, got {type(attrs).__name__}")
+    return attrs
 
 
 def generate_attr_path(parent_path: str, attr_name: str) -> str:

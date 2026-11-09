@@ -1,30 +1,45 @@
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 from ..file_abstraction import sync, _AbstractFile
 
-if "pyodide" not in sys.modules:
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from typing import Any, TypeAlias
+    from .utils import _Node
+    _ZarrGroup: TypeAlias = 'zarr.Group | zarr.AsyncGroup'
+    _ZarrNode: TypeAlias = zarr.Array[Any] | zarr.AsyncArray[Any] | zarr.Group | zarr.AsyncGroup | None
+
+# N.B. `TYPE_CHECKING` is always False at runtime, so the condition below is equivalent to
+# `"pyodide" not in sys.modules`. It only tells static type checkers to analyze the zarr-based implementation.
+if TYPE_CHECKING or "pyodide" not in sys.modules:
     import zarr
     import json
 
-    def list_keys(group: zarr.Group | zarr.AsyncGroup) -> list[str]:
+    def list_keys(group: _ZarrGroup) -> Iterable[str]:
         if isinstance(group, zarr.AsyncGroup):
-            async def list_keys_async():
+            async def list_keys_async() -> list[str]:
                 return [key async for key in group.keys()]
             return sync(list_keys_async())
         else:
             return group.keys()
         
-    def get_child(group: zarr.Group | zarr.AsyncGroup, key: str):
+    def get_child(
+            group: _ZarrGroup,
+            key: str
+            ) -> _ZarrNode:
         if isinstance(group, zarr.AsyncGroup):
-            async def get_child_async():
+            async def get_child_async() -> zarr.AsyncArray[Any] | zarr.AsyncGroup | None:
                 return await group.get(key)
             return sync(get_child_async())
         else:
             return group[key]
 
-    def recurse_nodes(node):
-        node_dict = {}
+    def recurse_nodes(node: _ZarrNode) -> _Node:
+        node_dict: _Node = _Node({})
+        if node is None:
+            return node_dict
         attrs = node.attrs
         if hasattr(attrs, 'asdict'):
             attrs = attrs.asdict()
