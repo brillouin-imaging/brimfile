@@ -15,7 +15,7 @@ def get_subtype(f: FileAbstraction) -> SubType:
     except ValueError:
         raise ValueError(f"Invalid subtype: {subtype_str}. Expected one of {[s.value for s in SubType]}")
 
-def _check_or_create_subtype(f: FileAbstraction, subtype: SubType):
+def _check_or_create_subtype(f: FileAbstraction, subtype: SubType) -> None:
     """
     Check that the data group subtype is 'subtype', creating it if missing.
     """
@@ -28,7 +28,7 @@ def _check_or_create_subtype(f: FileAbstraction, subtype: SubType):
         # If the Subtype attribute does not exist, create it
         sync(f.create_attr('/', 'Subtype', subtype.value))
 
-def _check_or_create_subtype_feature(f: FileAbstraction, feature: str):
+def _check_or_create_subtype_feature(f: FileAbstraction, feature: str) -> None:
     """
     Check that the given feature is declared in the Subtype_features attribute, creating it if missing.
     """
