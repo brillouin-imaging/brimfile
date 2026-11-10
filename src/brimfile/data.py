@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any, TypeAlias
     from numpy.typing import NDArray
+    from ._types import _3DIntCoord
 
 import numpy as np
 import asyncio
@@ -31,10 +32,10 @@ class Data:
     Represents a data group within the brim file.
     """
     # make AnalysisResults available as an attribute of Data
-    AnalysisResults = AnalysisResults
+    AnalysisResults: TypeAlias = AnalysisResults
 
     def __init__(self, file: FileAbstraction, path: str, *, 
-                 newly_created: bool = False, _initialize: bool = True):
+                 newly_created: bool = False, _initialize: bool = True) -> None:
         """
         Initialize the Data object. This constructor should not be called directly.
 
@@ -61,15 +62,17 @@ class Data:
 
         self._sparse = await self._load_sparse_flag_async()
         # the _spatial_map is None for non sparse data but the _spatial_map_px_size should always be valid
+        self._spatial_map: NDArray[np.integer[Any]] | None
+        self._spatial_map_px_size: tuple[Metadata.Item, ...] | None
         self._spatial_map, self._spatial_map_px_size = await self._load_spatial_mapping_async() if not newly_created else (None, None)
 
-    def get_name(self):
+    def get_name(self) -> str:
         """
         Returns the name of the data group.
         """
         return sync(get_object_name(self._file, self._path))
     
-    def get_index(self):
+    def get_index(self) -> int:
         """
         Returns the index of the data group.
         """
@@ -94,7 +97,7 @@ class Data:
             # if the attribute is not found, return the default value False
             return False
 
-    async def _load_spatial_mapping_async(self, load_in_memory: bool=True) -> tuple:
+    async def _load_spatial_mapping_async(self, load_in_memory: bool=True) -> tuple[NDArray[np.integer[Any]] | None, tuple[Metadata.Item, ...]]:
         """
         Load a spatial mapping in the same format as 'Cartesian visualisation',
         irrespectively on whether 'Spatial_map' is defined instead.
@@ -106,8 +109,8 @@ class Data:
             If the spatial mapping is not defined in the file, returns None for the spatial map.
             The pixel size is read from the data group for non-sparse data.
         """
-        cv = None
-        px_size = 3*(Metadata.Item(value=1, units=None),)
+        cv: Any = None
+        px_size: tuple[Metadata.Item, ...] = 3*(Metadata.Item(value=1, units=None),)
 
         cv_path = concatenate_paths(
             self._path, brim_obj_names.data.cartesian_visualisation)
@@ -145,8 +148,8 @@ class Data:
                 cv = np_array_to_smallest_int_type(cv)
 
         elif await self._file.object_exists(sm_path):
-            async def load_spatial_map_from_file():
-                async def load_coordinate_from_sm(coord: str):
+            async def load_spatial_map_from_file() -> tuple[NDArray[Any], NDArray[Any], NDArray[Any]]:
+                async def load_coordinate_from_sm(coord: str) -> NDArray[Any]:
                     res = np.empty(0)  # empty array
                     try:
                         res = await self._file.open_dataset(
@@ -161,7 +164,7 @@ class Data:
                             f"The 'Spatial_map/{coord}' dataset is not a 1D array as expected")
                     return res
 
-                def check_coord_array(arr, size):
+                def check_coord_array(arr: NDArray[Any], size: int) -> NDArray[Any]:
                     if arr.size == 0:
                         return np.zeros(size)
                     elif arr.size != size:
@@ -182,8 +185,9 @@ class Data:
                 z = check_coord_array(z, size)
                 return x, y, z
 
-            def calculate_step(x):
+            def calculate_step(x: NDArray[Any]) -> tuple[int, Any]:
                 n = len(np.unique(x))
+                d: Any
                 if n == 1:
                     d = None
                 else:
@@ -205,7 +209,7 @@ class Data:
             px_size = ()
             for i in range(3):
                 px_sz = (dZ, dY, dX)[i]
-                px_unit = px_size_units
+                px_unit: str | None = px_size_units
                 if px_sz is None:
                     px_sz = 1
                     px_unit = None
@@ -227,7 +231,7 @@ class Data:
 
         return cv, px_size
 
-    def _get_spatial_index_from_coor(self, coor: tuple) -> tuple:
+    def _get_spatial_index_from_coor(self, coor: _3DIntCoord) -> tuple[int, ...]:
         """
         Retrieve the spatial index for a given spatial coordinate.
 
@@ -241,12 +245,13 @@ class Data:
         """
         if len(coor) != 3:
             raise ValueError("coor must contain 3 values for z, y, x")
-        index = coor
+        index: tuple[int, ...] = coor
         if self._sparse:
+            assert self._spatial_map is not None
             index = (int(self._spatial_map[coor]),)
         return index
 
-    def get_PSD(self) -> tuple:
+    def get_PSD(self) -> tuple[Any, Any, str, str]:
         """
         LOW LEVEL FUNCTION
 
@@ -281,9 +286,9 @@ class Data:
         return PSD, frequency, PSD_units, frequency_units
 
     @staticmethod
-    def interpolate_spectra(PSD: np.ndarray, frequency: np.ndarray, *, 
-                            new_frequency: np.ndarray | None = None
-                            ) -> tuple[np.ndarray, np.ndarray]:
+    def interpolate_spectra(PSD: NDArray[Any], frequency: NDArray[Any], *, 
+                            new_frequency: NDArray[Any] | None = None
+                            ) -> tuple[NDArray[Any], NDArray[Any]]:
         """Interpolate spectra along their final axis.
 
         Each spectrum is interpolated from its corresponding values in
@@ -358,7 +363,7 @@ class Data:
             interpolated_PSD[idx] = np.interp(interp_freq[idx], frequency[idx], PSD[idx])
         return interpolated_PSD, new_frequency
     
-    def get_PSD_as_spatial_map(self, *, broadcast_frequency: bool = True) -> tuple:
+    def get_PSD_as_spatial_map(self, *, broadcast_frequency: bool = True) -> tuple[NDArray[Any], NDArray[Any], str, str]:
         """
         Retrieve the Power Spectral Density (PSD) as a spatial map and the frequency from the current data group.
         Arguments:
@@ -406,19 +411,19 @@ class Data:
 
         return PSD, frequency, PSD_units, frequency_units
 
-    def _get_spectrum(self, index: int | tuple[int, int, int]) -> tuple:
+    def _get_spectrum(self, index: int | _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
         """
         Synchronous wrapper for `_get_spectrum_async`.
         """
         return sync(self._get_spectrum_async(index))
-    async def _get_spectrum_async(self, index: int | tuple[int, int, int]) -> tuple:
+    async def _get_spectrum_async(self, index: int | _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
         """
         @public
 
         Retrieve a spectrum from the data group by its index or coordinates.
 
         Args:
-            index (int | tuple[int, int, int]): The index (for sparse data) or z, y, x coordinates (for non-sparse data) of the spectrum to retrieve.
+            index (int | _3DIntCoord): The index (for sparse data) or z, y, x coordinates (for non-sparse data) of the spectrum to retrieve.
 
         Returns:
             tuple: (PSD, frequency, PSD_units, frequency_units) for the specified index. 
@@ -433,9 +438,7 @@ class Data:
             raise ValueError("For non-sparse data, index must be a tuple of (z, y, x) coordinates.")
             
         # index = -1 corresponds to no spectrum
-        if self._sparse and index < 0:
-            return None, None, None, None
-        elif not self._sparse and any(i < 0 for i in index):
+        if any(i < 0 for i in ((index,) if isinstance(index, int) else index)):
             return None, None, None, None
         PSD, frequency = await asyncio.gather(
             self._file.open_dataset(concatenate_paths(
@@ -443,24 +446,22 @@ class Data:
             self._file.open_dataset(concatenate_paths(
                 self._path, brim_obj_names.data.frequency))
             )
-        if self._sparse and index >= PSD.shape[0]:
-            raise IndexError(
-                f"index {index} out of range for PSD with shape {PSD.shape}")
-        elif not self._sparse and any(i >= PSD.shape[j] for j, i in enumerate(index)):
-            raise IndexError(
-                f"index {index} out of range for PSD with shape {PSD.shape}")
+        if any(i >= PSD.shape[j] for j, i in enumerate((index,) if isinstance(index, int) else index)):
+            raise IndexError(f"index {index} out of range for PSD with shape {PSD.shape}")
         # retrieve the units of the PSD and frequency
         PSD_units, frequency_units = await asyncio.gather(
             units.of_object(self._file, PSD),
             units.of_object(self._file, frequency)
         )
         # add ellipsis to the index to select the spectrum and the corresponding frequency
+        full_index: tuple[Any, ...]
         if self._sparse:
-            index = (index, ...)
+            full_index = (index, ...)
         else:
-            index = index + (..., )
+            assert isinstance(index, tuple)
+            full_index = index + (..., )
         # map index to the frequency array, considering the broadcasting rules
-        index_frequency = index
+        index_frequency: tuple[Any, ...] = full_index
         if frequency.ndim < PSD.ndim:
             if self._sparse:
                 # given the definition of the brim file format,
@@ -474,10 +475,10 @@ class Data:
                     index_frequency = (..., )
                 else:
                     # if the frequency has some spatial dimensions but not all, we need to add the corresponding indices to the index of the frequency
-                    index_frequency = index[-unassigned_indices:] + (..., )
+                    index_frequency = full_index[-unassigned_indices:] + (..., )
         #get the spectrum and the corresponding frequency at the specified index
         PSD, frequency = await asyncio.gather(
-            _async_getitem(PSD, index),
+            _async_getitem(PSD, full_index),
             _async_getitem(frequency, index_frequency)
         )
         #broadcast the frequency to match the shape of PSD if needed
@@ -485,7 +486,7 @@ class Data:
             frequency = np.broadcast_to(frequency, PSD.shape)
         return PSD, frequency, PSD_units, frequency_units
 
-    def get_spectrum_in_image(self, coor: tuple) -> tuple:
+    def get_spectrum_in_image(self, coor: _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
         """
         Retrieve a spectrum from the data group using spatial coordinates.
 
@@ -505,12 +506,14 @@ class Data:
             raise ValueError("coor must contain 3 values for z, y, x")
 
         if self._sparse:
+            assert self._spatial_map is not None
             index = int(self._spatial_map[coor])
             return self._get_spectrum(index)
         else:
             return self._get_spectrum(coor)
           
-    async def get_spectrum_and_all_quantities_in_image_async(self, ar: 'Data.AnalysisResults', coor: tuple, index_peak: int = 0) -> tuple[tuple, dict]:
+    async def get_spectrum_and_all_quantities_in_image_async(self, ar: Data.AnalysisResults, coor: _3DIntCoord, index_peak: int = 0
+                                                             ) -> tuple[tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None], dict[str, dict[str, Metadata.Item]]]:
         """
         Retrieve the spectrum and all available quantities from the analysis results at a specific spatial coordinate.
 
@@ -526,21 +529,23 @@ class Data:
         """
         if len(coor) != 3:
             raise ValueError("coor must contain 3 values for z, y, x")
-        index = coor
+        index: int | _3DIntCoord = coor
         if self._sparse:
+            assert self._spatial_map is not None
             index = int(self._spatial_map[coor])
         spectrum, quantities = await asyncio.gather(
             self._get_spectrum_async(index),
             ar._get_all_quantities_at_index(index, index_peak)
         )
         return spectrum, quantities
-    def get_spectrum_and_all_quantities_in_image(self, ar: 'Data.AnalysisResults', coor: tuple, index_peak: int = 0) -> tuple[tuple, dict]:
+    def get_spectrum_and_all_quantities_in_image(self, ar: Data.AnalysisResults, coor: _3DIntCoord, index_peak: int = 0
+                                                 ) -> tuple[tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None], dict[str, dict[str, Metadata.Item]]]:
         """
         Synchronous wrapper for `get_spectrum_and_all_quantities_in_image_async` (see doc for `brimfile.data.Data.get_spectrum_and_all_quantities_in_image_async`)
         """
         return sync(self.get_spectrum_and_all_quantities_in_image_async(ar, coor, index_peak))
 
-    def get_metadata(self):
+    def get_metadata(self) -> Metadata:
         """
         Returns the metadata associated with the current Data group
         Note that this contains both the general metadata stored in the file (which might be redifined by the specific data group)
@@ -548,7 +553,7 @@ class Data:
         """
         return Metadata(self._file, self._path)
 
-    def get_num_parameters(self) -> tuple:
+    def get_num_parameters(self) -> tuple[int, ...]:
         """
         Retrieves the number of parameters
 
@@ -558,7 +563,7 @@ class Data:
         pars, _ = self.get_parameters()
         return pars.shape if pars is not None else ()
 
-    def get_parameters(self) -> list:
+    def get_parameters(self) -> tuple[Any, Any]:
         """
         Retrieves the parameters  and their associated names.
 
@@ -575,8 +580,9 @@ class Data:
             return (pars, pars_names)
         return (None, None)
 
-    def create_calibration_group(self, *, index: NDArray[np.integer] | None = None, calibration_data: list[dict[str, Any]] | None = None,
-                                 same_as: int | None = None, attributes: dict[str, MetadataItem] = None,
+    def create_calibration_group(self, *, index: NDArray[np.integer[Any]] | None = None,
+                                 calibration_data: dict[str, Any] | list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+                                 same_as: int | None = None, attributes: dict[str, MetadataItem] | None = None,
                                  compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Calibration:
         """
         Create a new calibration group in the current data group.
@@ -701,8 +707,11 @@ class Data:
         await cal_group._init_async()
         return cal_group
 
-    def create_analysis_results_group(self, data_AntiStokes, data_Stokes=None, *,
-                                          index: int = None, name: str = None, fit_model: 'Data.AnalysisResults.FitModel' = None) -> AnalysisResults:
+    def create_analysis_results_group(self,
+                                      data_AntiStokes: dict[str, Any] | list[dict[str, Any]] | tuple[dict[str, Any], ...],
+                                      data_Stokes: dict[str, Any] | list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None, *,
+                                      index: int | None = None, name: str | None = None,
+                                      fit_model: Data.AnalysisResults.FitModel | None = None) -> AnalysisResults:
         """
         Adds a new AnalysisResults entry to the current data group.
         Parameters:
@@ -739,7 +748,7 @@ class Data:
 
         return ar
 
-    def list_AnalysisResults(self, retrieve_custom_name=False) -> list:
+    def list_AnalysisResults(self, retrieve_custom_name: bool = False) -> list[dict[str, Any]]:
         """
         List all AnalysisResults groups in the current data group. The list is ordered by index.
 
@@ -750,14 +759,14 @@ class Data:
                 - 'custom_name' (str, optional): if retrieve_custom_name==True, it contains the name of the AnalysisResults group as returned from utils.get_object_name.
         """
 
-        analysis_results_groups = []
+        analysis_results_groups: list[dict[str, Any]] = []
 
         matched_objs = sync(list_objects_matching_pattern_async(
             self._file, self._group, brim_obj_names.data.analysis_results + r"_(\d+)$"))
-        async def _make_dict_item(matched_obj, retrieve_custom_name):
+        async def _make_dict_item(matched_obj: tuple[str, ...], retrieve_custom_name: bool) -> dict[str, Any]:
             name = matched_obj[0]
             index = int(matched_obj[1])
-            curr_obj_dict = {'name': name, 'index': index}
+            curr_obj_dict: dict[str, Any] = {'name': name, 'index': index}
             if retrieve_custom_name:
                 ar_path = concatenate_paths(self._path, name)
                 custom_name = await get_object_name(self._file, ar_path)
@@ -782,7 +791,7 @@ class Data:
         Raises:
             IndexError: If there is no analysis with the corresponding index
         """
-        name = None
+        name: str | None = None
         ls = self.list_AnalysisResults()
         for el in ls:
             if el['index'] == index:
@@ -794,8 +803,8 @@ class Data:
         return Data.AnalysisResults(self._file, path, data_group_path=self._path,
                                     spatial_map=self._spatial_map, spatial_map_px_size=self._spatial_map_px_size, sparse=self._sparse)
 
-    def _add_data(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, freq_units='GHz',
-                compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+    def _add_data(self, PSD: NDArray[Any], frequency: NDArray[Any], *, scanning: dict[str, Any] | None = None, freq_units: str = 'GHz',
+                compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> None:
         """
         @public
 
@@ -841,10 +850,10 @@ class Data:
                 sm = scanning['Spatial_map']
                 size = 0
 
-                def check_coor(coor: str):
+                def check_coor(coor: str) -> int:
                     if coor in sm:
                         sm[coor] = np.array(sm[coor])
-                        size1 = sm[coor].size
+                        size1: int = sm[coor].size
                         if size1 != size and size != 0:
                             raise ValueError(
                                 f"'{coor}' in 'Spatial_map' is invalid!")
@@ -895,7 +904,7 @@ class Data:
                 if 'units' in sm:
                     units.add_to_object(self._file, sm_group, sm['units'])
 
-                def add_sm_dataset(coord: str):
+                def add_sm_dataset(coord: str) -> None:
                     if coord in sm:
                         sync(self._file.create_dataset(
                             sm_group, coord, data=sm[coord], compression=compression))
@@ -922,14 +931,14 @@ class Data:
         self._spatial_map, self._spatial_map_px_size = sync(self._load_spatial_mapping_async())
 
     @staticmethod
-    def list_data_groups(file: FileAbstraction, retrieve_custom_name=False) -> list:
+    def list_data_groups(file: FileAbstraction, retrieve_custom_name: bool = False) -> list[dict[str, Any]]:
         """
         Synchronous wrapper for `list_data_groups_async` (see doc for `brimfile.data.Data.list_data_groups_async`)
         """
         return sync(Data.list_data_groups_async(file, retrieve_custom_name))
 
     @staticmethod
-    async def list_data_groups_async(file: FileAbstraction, retrieve_custom_name=False) -> list:
+    async def list_data_groups_async(file: FileAbstraction, retrieve_custom_name: bool = False) -> list[dict[str, Any]]:
         """
         List all data groups in the brim file. The list is ordered by index.
 
@@ -940,15 +949,15 @@ class Data:
                 - 'custom_name' (str, optional): if retrieve_custom_name==True, it contains the name of the data group as returned from utils.get_object_name.
         """
 
-        data_groups = []
+        data_groups: list[dict[str, Any]] = []
 
         matched_objs = await list_objects_matching_pattern_async(
             file, brim_obj_names.Brillouin_base_path, brim_obj_names.data.base_group + r"_(\d+)$")
         
-        async def _make_dict_item(matched_obj, retrieve_custom_name):
+        async def _make_dict_item(matched_obj: tuple[str, ...], retrieve_custom_name: bool) -> dict[str, Any]:
             name = matched_obj[0]
             index = int(matched_obj[1])
-            curr_obj_dict = {'name': name, 'index': index}
+            curr_obj_dict: dict[str, Any] = {'name': name, 'index': index}
             if retrieve_custom_name:
                 path = concatenate_paths(
                     brim_obj_names.Brillouin_base_path, name)
@@ -966,7 +975,7 @@ class Data:
         return data_groups
 
     @staticmethod
-    async def _get_existing_group_name_async(file: FileAbstraction, index: int) -> str:
+    async def _get_existing_group_name_async(file: FileAbstraction, index: int) -> str | None:
         """
         Get the name of an existing data group by index.
 
@@ -977,7 +986,7 @@ class Data:
         Returns:
             str: The name of the data group, or None if not found.
         """
-        group_name: str = None
+        group_name: str | None = None
         data_groups = await Data.list_data_groups_async(file)
         for dg in data_groups:
             if dg['index'] == index:
@@ -997,7 +1006,7 @@ class Data:
         Raises:
             IndexError: If no data group with the specified index is found in the file.
         """
-        group_name: str = await cls._get_existing_group_name_async(file, index)
+        group_name: str | None = await cls._get_existing_group_name_async(file, index)
         if group_name is None:
             raise IndexError(f"No data group with index {index} found in the file")
         dg = cls(file, concatenate_paths(brim_obj_names.Brillouin_base_path, group_name), _initialize=False) 
@@ -1005,7 +1014,7 @@ class Data:
         return dg
     
     @classmethod
-    def _create_new(cls, file: FileAbstraction, index: int, sparse: bool = False, name: str = None) -> 'Data':
+    def _create_new(cls, file: FileAbstraction, index: int, sparse: bool = False, name: str | None = None) -> 'Data':
         """
         Create a new data group with the specified index.
 
@@ -1027,7 +1036,7 @@ class Data:
         return cls(file, concatenate_paths(brim_obj_names.Brillouin_base_path, group_name), newly_created=True)
 
     @staticmethod
-    def _generate_group_name(index: int, n_digits: int = None) -> str:
+    def _generate_group_name(index: int, n_digits: int | None = None) -> str:
         """
         Generate a name for a data group based on the index.
 

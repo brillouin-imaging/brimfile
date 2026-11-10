@@ -3,6 +3,12 @@ from __future__ import annotations
 import numpy as np
 import warnings
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Any, Literal
+    from numpy.typing import NDArray
+
 from .data import Data
 
 from .utils import concatenate_paths
@@ -16,7 +22,9 @@ from .validation.json_descriptor import generate_json_descriptor
 
 # don't import _AbstractFile if running in pyodide (it is defined in js)
 import sys
-if "pyodide" not in sys.modules:
+# N.B. `TYPE_CHECKING` is always False at runtime, so the conditions on `sys.modules` in this file are
+# not affected by it. It only tells static type checkers (mypy) to analyze the non-pyodide implementation.
+if TYPE_CHECKING or "pyodide" not in sys.modules:
     from .file_abstraction import _AbstractFile
 
 class File:
@@ -28,14 +36,14 @@ class File:
     results, and validation helpers.
     """
 
-    if "pyodide" in sys.modules:
-        def __init__(self, file):
+    if not TYPE_CHECKING and "pyodide" in sys.modules:
+        def __init__(self, file: Any) -> None:
             self._file = file
             self._file.version = self._get_file_version_tuple()
             if not self.is_valid():
                 raise ValueError("The brim file is not valid!")
     else:
-        def __init__(self, filename: str, mode: str = 'r',
+        def __init__(self, filename: str, mode: Literal['r', 'r+', 'a', 'w', 'w-'] = 'r',
                      store_type: StoreType = StoreType.AUTO, * ,
                      validate: bool = False) -> None:
             """
@@ -64,8 +72,9 @@ class File:
                         raise ValueError(f"Validation error at {err.path}: {err.message}")
 
     @staticmethod
-    def _parse_version_tuple3(version: str) -> Version:
+    def _parse_version_tuple3(version: str | list[int | str] | tuple[int | str, ...]) -> Version:
         """Normalize a version value into a 3-item tuple (major, minor, patch)."""
+        parts: list[Any]
         if isinstance(version, str):
             parts = [part for part in version.split('.') if part != '']
         elif isinstance(version, (list, tuple)):
@@ -74,7 +83,7 @@ class File:
             raise ValueError(f"Invalid version format: {version}")
 
         # convert the first 3 parts to int if they are digits (str), otherwise keep them as they are
-        normalized: list[int | str] = []
+        normalized: list[int] = []
         for part in parts[:3]:
             if isinstance(part, str) and part.isdigit():
                 normalized.append(int(part))
@@ -116,7 +125,7 @@ class File:
         validation_errors: list[ValidationError] = validate_json(json_descriptor)
         return validation_errors
     
-    def __del__(self):
+    def __del__(self) -> None:
         try:
             if hasattr(self, '_file'):
                 self.close()
@@ -173,8 +182,8 @@ class File:
 
         return f
 
-    def create_data_group(self, PSD: np.ndarray, frequency: np.ndarray, px_size_um: tuple, *, index: int = None,
-                          name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
+    def create_data_group(self, PSD: NDArray[Any], frequency: NDArray[Any], px_size_um: Sequence[float | None], *, index: int | None = None,
+                          name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new data entry to the file.
         Parameters:
@@ -203,8 +212,8 @@ class File:
         return self._create_data_group_raw(PSD, frequency, scanning = None, sparse = False, px_size_um=px_size_um, 
                                              index=index, name=name, compression=compression)
 
-    def create_data_group_sparse(self, PSD: np.ndarray, frequency: np.ndarray, scanning: dict, *,
-                                index: int = None, name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
+    def create_data_group_sparse(self, PSD: NDArray[Any], frequency: NDArray[Any], scanning: dict[str, Any], *,
+                                index: int | None = None, name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new [sparse data entry](https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md) to the file.
         
@@ -228,8 +237,9 @@ class File:
         """
         return self._create_data_group_raw(PSD, frequency, scanning=scanning, sparse=True, index=index, name=name, compression=compression)   
     
-    def _create_data_group_raw(self, PSD: np.ndarray, frequency: np.ndarray, *, scanning: dict = None, px_size_um = None, sparse: bool = False,
-                                index: int = None, name: str = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
+    def _create_data_group_raw(self, PSD: NDArray[Any], frequency: NDArray[Any], *, scanning: dict[str, Any] | None = None,
+                               px_size_um: Sequence[float | None] | None = None, sparse: bool = False,
+                                index: int | None = None, name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
         """
         Adds a new data entry to the file. Check the documentation for `brimfile.data.Data._add_data` for more details on the parameters.
         Parameters:
@@ -271,7 +281,7 @@ class File:
         d._add_data(PSD, frequency, scanning = scanning, compression=compression)
         return d
 
-    def list_data_groups(self, retrieve_custom_name=False) -> list:
+    def list_data_groups(self, retrieve_custom_name: bool = False) -> list[dict[str, Any]]:
         """
         List all data groups in the brim file.
 

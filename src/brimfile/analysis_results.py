@@ -17,8 +17,12 @@ from .fitting_models import FitModel
 from .metadata import Metadata
 from .physics import Brillouin_shift_water, Brillouin_width_water
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
+    from typing import Any, TypeAlias
+    from types import EllipsisType
+    from numpy.typing import ArrayLike, NDArray
+    from ._types import _3DIntCoord
     # import here to avoid circular imports
     from .data import Data
 
@@ -49,10 +53,12 @@ class AnalysisResults:
         Stokes = "S"
         average = "avg"
     
-    FitModel = FitModel
+    FitModel: TypeAlias = FitModel
 
     def __init__(self, file: FileAbstraction, full_path: str, *, data_group_path: str,
-                    spatial_map = None, spatial_map_px_size = None, sparse: bool = False):
+                    spatial_map: NDArray[np.integer[Any]] | None = None,
+                    spatial_map_px_size: tuple[Metadata.Item, ...] | None = None,
+                    sparse: bool = False) -> None:
         """
         Initialize the AnalysisResults object.
 
@@ -86,7 +92,7 @@ class AnalysisResults:
             Metadata: The Metadata object associated with the current Data group.
         """
         return Metadata(self._file, self._data_group_path)
-    def get_name(self):
+    def get_name(self) -> str:
         """
         Returns the name of the Analysis group.
         """
@@ -111,8 +117,10 @@ class AnalysisResults:
                     spatial_map=data._spatial_map, spatial_map_px_size=data._spatial_map_px_size,
                     sparse=sparse)
 
-    def add_data(self, data_AntiStokes=None, data_Stokes=None, *,
-                    fit_model: 'AnalysisResults.FitModel' = None):
+    def add_data(self,
+                 data_AntiStokes: dict[str, Any] | list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+                 data_Stokes: dict[str, Any] | list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None, *,
+                 fit_model: AnalysisResults.FitModel | None = None) -> None:
         """
         Adds data for the analysis results for AntiStokes and Stokes peaks to the file.
         
@@ -139,7 +147,7 @@ class AnalysisResults:
         ar_cls = self.__class__
         ar_group = sync(self._file.open_group(self._path))
 
-        def add_quantity(qt: AnalysisResults.Quantity, pt: AnalysisResults.PeakType, data, index: int = 0):
+        def add_quantity(qt: AnalysisResults.Quantity, pt: AnalysisResults.PeakType, data: NDArray[Any], index: int = 0) -> None:
             # PSD_nonspectral_shape is an closure variable that is used to check the shape of the data being added, if the PSD dataset is already present in the current data group.
             if PSD_nonspectral_shape is not None:
                 expected_shape = PSD_nonspectral_shape
@@ -150,7 +158,7 @@ class AnalysisResults:
             sync(self._file.create_dataset(
                 ar_group, ar_cls._get_quantity_name(qt, pt, index), data))
 
-        def add_data_pt(pt: AnalysisResults.PeakType, data, index: int = 0):
+        def add_data_pt(pt: AnalysisResults.PeakType, data: dict[str, Any], index: int = 0) -> None:
             if 'shift' in data:
                 add_quantity(ar_cls.Quantity.Shift,
                                 pt, data['shift'], index)
@@ -192,7 +200,7 @@ class AnalysisResults:
                     self._set_units(
                         data['Cov_matrix_units'], ar_cls.Quantity.Cov_matrix, pt, index)
 
-        PSD_nonspectral_shape = None
+        PSD_nonspectral_shape: tuple[int, ...] | None = None
         try:
             PSD = sync(self._file.open_dataset(concatenate_paths(
                 self._data_group_path, brim_obj_names.data.PSD)))
@@ -229,7 +237,7 @@ class AnalysisResults:
         full_path = concatenate_paths(self._path, dt_name)
         return sync(units.of_object(self._file, full_path))
 
-    def _set_units(self, un: str, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> str:
+    def _set_units(self, un: str, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> None:
         """
         Set the units of a specified quantity.
 
@@ -246,14 +254,14 @@ class AnalysisResults:
             raise ValueError(f"Units for {qt.name} are not settable because this quantity is computed on-the-fly.")
         dt_name = AnalysisResults._get_quantity_name(qt, pt, index)
         full_path = concatenate_paths(self._path, dt_name)
-        return units.add_to_object(self._file, full_path, un)
+        units.add_to_object(self._file, full_path, un)
 
-    async def _compute_elastic_contrast_async(self, shift):
+    async def _compute_elastic_contrast_async(self, shift: ArrayLike) -> NDArray[Any]:
         shift_arr = np.asarray(shift)
         try:
             md = self._get_metadata()
             coros = [md._get_wavelength_nm_async(), md._get_temperature_c_async(), md._get_scattering_angle_deg_async()]
-            res = await asyncio.gather(*coros, return_exceptions=True)
+            res: list[Any] = await asyncio.gather(*coros, return_exceptions=True)
             wavelength_nm, temperature_c, scattering_angle_deg = res
             if isinstance(wavelength_nm, Exception):
                 raise ValueError("Could not retrieve the wavelength for computing Elastic Contrast.")
@@ -271,12 +279,12 @@ class AnalysisResults:
             raise ValueError(
                 f"Could not compute Elastic_contrast from metadata ({e}).")
 
-    async def _compute_viscous_contrast_async(self, width):
+    async def _compute_viscous_contrast_async(self, width: ArrayLike) -> NDArray[Any]:
         width_arr = np.asarray(width)
         try:
             md = self._get_metadata()
             coros = [md._get_wavelength_nm_async(), md._get_temperature_c_async(), md._get_scattering_angle_deg_async()]
-            res = await asyncio.gather(*coros, return_exceptions=True)
+            res: list[Any] = await asyncio.gather(*coros, return_exceptions=True)
             wavelength_nm, temperature_c, scattering_angle_deg = res
             if isinstance(wavelength_nm, Exception):
                 raise ValueError("Could not retrieve the wavelength for computing Viscous Contrast.")
@@ -313,7 +321,7 @@ class AnalysisResults:
                 self._fit_model = AnalysisResults.FitModel.Undefined        
         return self._fit_model
 
-    def save_image_to_OMETiff(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0, filename: str = None) -> str:
+    def save_image_to_OMETiff(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0, filename: str | None = None) -> str:
         """
         Saves the image corresponding to the specified quantity and index to an OMETiff file.
 
@@ -353,7 +361,7 @@ class AnalysisResults:
             tif.write(img, metadata=metadata)
         return filename
 
-    def get_image(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple:
+    def get_image(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple[NDArray[Any], tuple[Metadata.Item, ...]]:
         """
         Retrieves an image (spatial map) based on the specified quantity, peak type, and index.
 
@@ -373,14 +381,14 @@ class AnalysisResults:
                 peaks are available for the selected index.
         """
         if qt == AnalysisResults.Quantity.Elastic_contrast:
-            shift_img, px_size = self.get_image(AnalysisResults.Quantity.Shift, pt, index)
-            return sync(self._compute_elastic_contrast_async(shift_img)), px_size
+            shift_img, px_size_img = self.get_image(AnalysisResults.Quantity.Shift, pt, index)
+            return sync(self._compute_elastic_contrast_async(shift_img)), px_size_img
         if qt == AnalysisResults.Quantity.Viscous_contrast:
-            width_img, px_size = self.get_image(AnalysisResults.Quantity.Width, pt, index)
-            return sync(self._compute_viscous_contrast_async(width_img)), px_size
+            width_img, px_size_img = self.get_image(AnalysisResults.Quantity.Width, pt, index)
+            return sync(self._compute_viscous_contrast_async(width_img)), px_size_img
 
         pt_type = AnalysisResults.PeakType
-        data = None
+        data: NDArray[Any]
         if pt == pt_type.average:
             peaks = self.list_existing_peak_types(index)
             match len(peaks):
@@ -403,13 +411,18 @@ class AnalysisResults:
             img[sm<0, ...] = np.nan  # set invalid pixels to NaN
         else:
             img = data
-        return img, self._spatial_map_px_size
-    def get_quantity_at_pixel(self, coord: tuple, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0):
+
+        px_size = self._spatial_map_px_size
+        if px_size is None:
+            px_size = 3*(Metadata.Item(value=1, units=None),)
+            warnings.warn("Pixel size information is not available for this AnalysisResults object. Defaulting to 1 for all dimensions.")
+        return img, px_size
+    def get_quantity_at_pixel(self, coord: _3DIntCoord, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> Any:
         """
         Synchronous wrapper for `get_quantity_at_pixel_async` (see doc for `brimfile.analysis_results.AnalysisResults.get_quantity_at_pixel_async`)
         """
         return sync(self.get_quantity_at_pixel_async(coord, qt, pt, index))
-    async def get_quantity_at_pixel_async(self, coord: tuple, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0):
+    async def get_quantity_at_pixel_async(self, coord: _3DIntCoord, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> Any:
         """
         Retrieves the specified quantity in the image at coord, based on the peak type and index.
 
@@ -431,9 +444,12 @@ class AnalysisResults:
         if qt == AnalysisResults.Quantity.Viscous_contrast:
             width_value = await self.get_quantity_at_pixel_async(coord, AnalysisResults.Quantity.Width, pt, index)
             return await self._compute_viscous_contrast_async(width_value)
+        i: tuple[int, EllipsisType] | tuple[int, int, int, EllipsisType]
         if self._sparse:
+            if self._spatial_map is None:
+                raise ValueError("Spatial map is None, cannot retrieve quantity at pixel for sparse data.")
             i = self._spatial_map[*coord]
-            assert i.size == 1
+            assert len(i) == 1
             if i<0:
                 return np.nan  # invalid pixel
             i = (int(i), ...)
@@ -441,7 +457,7 @@ class AnalysisResults:
             i = coord + (...,)
 
         pt_type = AnalysisResults.PeakType
-        value = None
+        value: Any = None
         if pt == pt_type.average:
             value = None
             peaks = await self.list_existing_peak_types_async(index)
@@ -466,7 +482,7 @@ class AnalysisResults:
             data = await self._get_quantity(qt, pt, index)
             value = await _async_getitem(data, i)
         return value
-    def get_all_quantities_in_image(self, coor: tuple, index_peak: int = 0) -> dict:
+    def get_all_quantities_in_image(self, coor: _3DIntCoord, index_peak: int = 0) -> dict[str, dict[str, Metadata.Item]]:
         """
         Retrieve all available quantities at a specific spatial coordinate.
 
@@ -481,51 +497,68 @@ class AnalysisResults:
         """
         if len(coor) != 3:
             raise ValueError("coor must contain 3 values for z, y, x")
-        index = int(self._spatial_map[coor]) if self._sparse else coor
+        index: int | _3DIntCoord
+        if self._sparse:
+            if self._spatial_map is None:
+                raise ValueError("Spatial map is None, cannot retrieve quantity at pixel for sparse data.")
+            index = int(self._spatial_map[coor])
+        else:
+            index = coor
         return sync(self._get_all_quantities_at_index(index, index_peak))
-    async def _get_all_quantities_at_index(self, index: int | tuple[int, int, int], index_peak: int = 0) -> dict:
+    async def _get_all_quantities_at_index(self, index: int | _3DIntCoord, index_peak: int = 0) -> dict[str, dict[str, Metadata.Item]]:
         """
         Retrieve all available quantities for a specific spatial index.
         Args:
-            index (int) | tuple[int, int, int]: The spatial index to retrieve quantities for, which can be a tuple for non-sparse data.
+            index (int | _3DIntCoord): The spatial index to retrieve quantities for, which can be a tuple for non-sparse data.
             index_peak (int, optional): The index of the data to retrieve, if multiple peaks are present (default is 0).
         Returns:
             dict: A dictionary of Metadata.Item in the form `result[quantity.name][peak.name] = bls.Metadata.Item(value, units)`
         """
-        async def _get_existing_quantity_at_index_async(self,  index: int | tuple[int, int, int], pt: AnalysisResults.PeakType = AnalysisResults.PeakType.AntiStokes):
+        async def _get_existing_quantity_at_index_async(self: AnalysisResults,  index: int | _3DIntCoord, pt: AnalysisResults.PeakType = AnalysisResults.PeakType.AntiStokes) -> tuple[tuple[AnalysisResults.Quantity, ...], list[Metadata.Item]]:
+            """Retrieve available quantities and their values at a spatial index.
+
+            Args:
+                index: The spatial index to retrieve values for.
+                pt: The peak type whose quantities should be retrieved.
+
+            Returns:
+                A tuple of the available quantities and their corresponding value as metadata items.
+            """
             as_cls = AnalysisResults
-            qts_ls = ()
-            dts_ls = ()
+            qts_ls: tuple[AnalysisResults.Quantity, ...] = ()
+            dts_ls: tuple[Any, ...] = ()
 
             qts = [qt for qt in as_cls.Quantity if qt not in (as_cls.Quantity.Elastic_contrast, as_cls.Quantity.Viscous_contrast)]
             coros = [self._file.open_dataset(concatenate_paths(self._path, as_cls._get_quantity_name(qt, pt, index_peak))) for qt in qts]
             
             # open the datasets asynchronously, excluding those that do not exist
-            opened_dts = await asyncio.gather(*coros, return_exceptions=True)
+            opened_dts: list[Any] = await asyncio.gather(*coros, return_exceptions=True)
             for i, opened_qt in enumerate(opened_dts):
                 if not isinstance(opened_qt, Exception):
                     qts_ls += (qts[i],)
                     dts_ls += (opened_dts[i],)
             # get the values at the specified index
+            full_index: tuple[Any, ...]
             if isinstance(index, tuple):
-                index += (..., )
+                full_index = index + (..., )
             else:
-                index = (index, ...)
-            coros_values = [_async_getitem(dt, index) for dt in dts_ls]
+                full_index = (index, ...)
+            coros_values = [_async_getitem(dt, full_index) for dt in dts_ls]
             coros_units = [units.of_object(self._file, dt) for dt in dts_ls]
             ret_ls = await asyncio.gather(*coros_values, *coros_units)
             n = len(coros_values)
             value_ls = [Metadata.Item(ret_ls[i], ret_ls[n+i]) for i in range(n)]
             return qts_ls, value_ls
+        
         antiStokes, stokes = await asyncio.gather(
             _get_existing_quantity_at_index_async(self, index, AnalysisResults.PeakType.AntiStokes),
             _get_existing_quantity_at_index_async(self, index, AnalysisResults.PeakType.Stokes)
         )
-        res = {}
+        res: dict[str, dict[str, Metadata.Item]] = {}
         # combine the results, including the average
         for qt in (set(antiStokes[0]) | set(stokes[0])):
             res[qt.name] = {}
-            pts = ()
+            pts: tuple[AnalysisResults.PeakType, ...] = ()
             #Stokes
             if qt in stokes[0]:
                 res[qt.name][AnalysisResults.PeakType.Stokes.name] = stokes[1][stokes[0].index(qt)]
@@ -536,7 +569,7 @@ class AnalysisResults:
                 pts += (AnalysisResults.PeakType.AntiStokes,)
             #average getting the units of the first peak
             res[qt.name][AnalysisResults.PeakType.average.name] = Metadata.Item(
-                np.mean([np.abs(res[qt.name][pt.name].value) for pt in pts]), 
+                float(np.mean([np.abs(cast(np.number,res[qt.name][pt.name].value)) for pt in pts])),
                 res[qt.name][pts[0].name].units
                 )
             if not all(res[qt.name][pt.name].units == res[qt.name][pts[0].name].units for pt in pts):
@@ -546,8 +579,9 @@ class AnalysisResults:
             ec_name = AnalysisResults.Quantity.Elastic_contrast.name
             for pt_name, item in res[AnalysisResults.Quantity.Shift.name].items():
                 try:
-                    ec = await self._compute_elastic_contrast_async(item.value)
-                    res.setdefault(ec_name, {})[pt_name] = Metadata.Item(ec, None)
+                    ec = await self._compute_elastic_contrast_async(cast(np.number,item.value))
+                    # _compute_elastic_contrast_async should return the same shape as the input, which is a scalar in this case
+                    res.setdefault(ec_name, {})[pt_name] = Metadata.Item(cast(int|float, ec), None)
                 except Exception as e:
                     warnings.warn(f"Error computing elastic contrast for {pt_name}: {e}")
 
@@ -555,8 +589,8 @@ class AnalysisResults:
             vc_name = AnalysisResults.Quantity.Viscous_contrast.name
             for pt_name, item in res[AnalysisResults.Quantity.Width.name].items():
                 try:
-                    vc = await self._compute_viscous_contrast_async(item.value)
-                    res.setdefault(vc_name, {})[pt_name] = Metadata.Item(vc, None)
+                    vc = await self._compute_viscous_contrast_async(cast(np.number,item.value))
+                    res.setdefault(vc_name, {})[pt_name] = Metadata.Item(cast(int|float, vc), None)
                 except Exception as e:
                     warnings.warn(f"Error computing viscous contrast for {pt_name}: {e}")
         return res
@@ -581,7 +615,7 @@ class AnalysisResults:
             name = f"{str(qt.value)}_{str(pt.value)}_{index}"
         return name
 
-    async def _get_quantity(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0):
+    async def _get_quantity(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> Any:
         """
         Retrieve a specific quantity dataset from the file.
 
@@ -599,12 +633,12 @@ class AnalysisResults:
         full_path = concatenate_paths(self._path, dt_name)
         return await self._file.open_dataset(full_path)
 
-    def list_existing_peak_types(self, index: int = 0) -> tuple:
+    def list_existing_peak_types(self, index: int = 0) -> tuple[AnalysisResults.PeakType, ...]:
         """
         Synchronous wrapper for `list_existing_peak_types_async` (see doc for `brimfile.analysis_results.AnalysisResults.list_existing_peak_types_async`)
         """
         return sync(self.list_existing_peak_types_async(index)) 
-    async def list_existing_peak_types_async(self, index: int = 0) -> tuple:
+    async def list_existing_peak_types_async(self, index: int = 0) -> tuple[AnalysisResults.PeakType, ...]:
         """
         Returns a tuple of existing peak types (Stokes and/or AntiStokes) for the specified index.
         Args:
@@ -618,7 +652,7 @@ class AnalysisResults:
             as_cls.Quantity.Shift, as_cls.PeakType.Stokes, index)
         shift_as_name = as_cls._get_quantity_name(
             as_cls.Quantity.Shift, as_cls.PeakType.AntiStokes, index)
-        ls = ()
+        ls: tuple[AnalysisResults.PeakType, ...] = ()
         coro_as_exists = self._file.object_exists(concatenate_paths(self._path, shift_as_name))
         coro_s_exists = self._file.object_exists(concatenate_paths(self._path, shift_s_name))
         as_exists, s_exists = await asyncio.gather(coro_as_exists, coro_s_exists)
@@ -628,12 +662,12 @@ class AnalysisResults:
             ls += (as_cls.PeakType.Stokes,)
         return ls
 
-    def list_existing_quantities(self,  pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple:
+    def list_existing_quantities(self,  pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple[AnalysisResults.Quantity, ...]:
         """
         Synchronous wrapper for `list_existing_quantities_async` (see doc for `brimfile.analysis_results.AnalysisResults.list_existing_quantities_async`)
         """
         return sync(self.list_existing_quantities_async(pt, index))
-    async def list_existing_quantities_async(self,  pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple:
+    async def list_existing_quantities_async(self,  pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple[AnalysisResults.Quantity, ...]:
         """
         Returns a tuple of existing quantities for the specified index.
         Args:
@@ -642,7 +676,7 @@ class AnalysisResults:
             tuple: A tuple containing `Quantity` members that exist for the given index.
         """
         as_cls = AnalysisResults
-        ls = ()
+        ls: tuple[AnalysisResults.Quantity, ...] = ()
 
         qts = [qt for qt in as_cls.Quantity if qt not in (as_cls.Quantity.Elastic_contrast, as_cls.Quantity.Viscous_contrast)]
         coros = [self._file.object_exists(concatenate_paths(self._path, as_cls._get_quantity_name(qt, pt, index))) for qt in qts]

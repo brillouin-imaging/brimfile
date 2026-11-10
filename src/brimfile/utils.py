@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 from .file_abstraction import FileAbstraction, sync
 
 
-def concatenate_paths(*paths):
+def concatenate_paths(*paths: str) -> str:
     """
     Concatenate multiple paths into a single path.
 
@@ -30,7 +30,7 @@ def concatenate_paths(*paths):
     return con_path
 
 
-async def list_objects_matching_pattern_async(file: FileAbstraction, parent_obj, regexp: str) -> list:
+async def list_objects_matching_pattern_async(file: FileAbstraction, parent_obj: Any, regexp: str) -> list[tuple[str, ...]]:
     """
     Lists objects within a parent object that match a given regular expression pattern.
     Args:
@@ -45,7 +45,7 @@ async def list_objects_matching_pattern_async(file: FileAbstraction, parent_obj,
     pattern = re.compile(regexp)
     # n_par = pattern.groups
 
-    matched_objects = []
+    matched_objects: list[tuple[str, ...]] = []
     for obj_name in await file.list_objects(parent_obj):
         match = pattern.match(obj_name)
         if match:
@@ -60,6 +60,7 @@ async def get_object_name(file: FileAbstraction, obj_path: str) -> str:
     The name is retrieved from the 'Name' attribute attached to the object.
     If the attribute is not found, the last part of the path is returned instead.
     """
+    name: str
     try:
         name = await file.get_attr(obj_path, 'Name')
         if name is None or name == '':
@@ -69,7 +70,7 @@ async def get_object_name(file: FileAbstraction, obj_path: str) -> str:
     return name
 
 
-def set_object_name(file: FileAbstraction, obj, name: str):
+def set_object_name(file: FileAbstraction, obj: Any, name: str) -> None:
     """
     Set the name of the object.
 
@@ -77,7 +78,7 @@ def set_object_name(file: FileAbstraction, obj, name: str):
     """
     sync(file.create_attr(obj, 'Name', name))
 
-def var_to_singleton(var):
+def var_to_singleton(var: Any) -> list[Any] | tuple[Any, ...]:
     """
     If `var` is not a list or a tuple, convert it to a single-ton (list with one element).
 
@@ -87,11 +88,12 @@ def var_to_singleton(var):
     Returns:
         list: A single-ton containing the variable.
     """    
-    if (not isinstance(var, list)) and (not isinstance(var, tuple)):
-        var = [var,]
-    return var
+    if isinstance(var, list) or isinstance(var, tuple):
+        return var
+    else:
+        return [var,]
 
-def np_array_to_smallest_int_type(arr):
+def np_array_to_smallest_int_type(arr: NDArray[np.integer[Any]]) -> NDArray[np.integer[Any]]:
     """
     Convert a numpy array containing integers to the smallest integer type that can hold its values.
 
@@ -101,7 +103,7 @@ def np_array_to_smallest_int_type(arr):
     Returns:
         numpy.ndarray: The converted array with the smallest integer type.
     """
-    def type_bug_fix (dt):
+    def type_bug_fix (dt: np.dtype[Any]) -> type[np.generic] | np.dtype[Any]:
         # explicitely pass an object of type np.dtype
         # as what is returned by `min_scalar_type` seems
         # to break type matching in the zarr library
@@ -129,23 +131,24 @@ def np_array_to_smallest_int_type(arr):
         raise TypeError("Input must be a numpy array.")
     if not np.issubdtype(arr.dtype, np.integer):
         raise TypeError("Input array must contain integer values.")
+    mx: np.integer[Any]
     if np.any(arr < 0):
         # set mx to a negative number so that the smallest integer type is signed
         mx = -np.max(np.abs(arr)).astype(np.int64)
     else:
-        mx = arr.max().astype(np.uint64)    
+        mx = np.max(arr).astype(np.uint64)
     # convert arr to the smallest integer type that can hold the values
     return arr.astype(type_bug_fix(np.min_scalar_type(mx)))
 
 def _guess_chunks(
-    shape: tuple,
+    shape: tuple[int, ...] | int,
     typesize: int,
-    dset_size: int = None,
+    dset_size: int | None = None,
     *,
     increment_bytes: int = 256 * 1024,
     min_bytes: int = 128 * 1024,
     max_bytes: int = 64 * 1024 * 1024,
-) -> tuple:
+) -> tuple[int, ...]:
     """
     Iteratively guess an appropriate chunk layout for an array, given its shape and
     the size of each element in bytes, and size constraints expressed in bytes. 
@@ -214,7 +217,7 @@ def _guess_chunks(
 
     return tuple(int(x) for x in chunks)
 
-def _determine_chunk_size(arr: NDArray[Any], n_unsplit_dims: int = 1) -> tuple:
+def _determine_chunk_size(arr: NDArray[Any], n_unsplit_dims: int = 1) -> tuple[int, ...]:
     """
     Use the same heuristic as the zarr library to determine chunk sizes, while
     keeping the trailing ``n_unsplit_dims`` dimensions unchanged.
@@ -235,6 +238,7 @@ def _determine_chunk_size(arr: NDArray[Any], n_unsplit_dims: int = 1) -> tuple:
 
     unsplit_elements = int(np.prod(unsplit_shape)) if unsplit_shape else 1
     target_sizes = _guess_chunks.__kwdefaults__
+    assert target_sizes is not None  # `_guess_chunks` always has keyword-only defaults
     # Scale target chunk bytes based on preserved trailing dimensions.
     target_sizes = {
         k: max(1, target_sizes[k] // unsplit_elements)

@@ -6,8 +6,17 @@ from enum import Enum
 import numpy as np  
 import asyncio
 
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias, TypeVar, cast
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Coroutine, Iterator, Iterable, Sequence
+    from types import EllipsisType
+    from typing import Any, Literal
+    from numpy.typing import ArrayLike, NDArray
+    from zarr.abc.codec import BytesBytesCodec
+    from zarr.abc.store import Store
+
 Version: TypeAlias = tuple[int, int, int] | None
+_T = TypeVar('_T')
 
 
 class FileAbstraction(ABC):
@@ -24,11 +33,13 @@ class FileAbstraction(ABC):
 
     # -------------------- Public attributes --------------------
     version: Version = None
+    # path/url of the file (set by the implementations)
+    filename: str
 
     # -------------------- Attribute Management --------------------
 
     @abstractmethod
-    async def create_attr(self, obj, name: str, data, **kwargs):
+    async def create_attr(self, obj: Any, name: str, data: Any, **kwargs: Any) -> None:
         """
         Create an attribute in the file.
 
@@ -41,7 +52,7 @@ class FileAbstraction(ABC):
         pass
 
     @abstractmethod
-    async def get_attr(self, obj, name: str):
+    async def get_attr(self, obj: Any, name: str) -> Any:
         """
         Return the data of an attribute in the file.
 
@@ -56,7 +67,7 @@ class FileAbstraction(ABC):
     # -------------------- Group Management --------------------
 
     @abstractmethod
-    async def open_group(self, full_path: str, **kwargs):
+    async def open_group(self, full_path: str, **kwargs: Any) -> Any:
         """
         Open a group in the file.
 
@@ -67,7 +78,7 @@ class FileAbstraction(ABC):
         pass
 
     @abstractmethod
-    async def create_group(self, full_path: str, **kwargs):
+    async def create_group(self, full_path: str, **kwargs: Any) -> Any:
         """
         Create a group in the file.
 
@@ -88,21 +99,23 @@ class FileAbstraction(ABC):
         `ZLIB` is kept for backward compatibility and is equivalent to `BLOSC`
         with `cname='zlib'`.
         """
-        NONE = None
+        NONE = 0
         DEFAULT = 1
         ZLIB = 2
         BLOSC = 3
         GZIP = 4
         ZSTD = 5
 
-        def __init__(self, type=DEFAULT, level=None, **kwargs):
-            self.type = type
+        def __init__(self, type: int | None = DEFAULT, level: int | None = None, **kwargs: Any) -> None:
+            if type is None:
+                type = self.DEFAULT
+            self.type: int = type
             self.level = level
             # extra codec-specific keyword arguments (e.g. `cname`/`shuffle` for
             # BLOSC, `checksum` for ZSTD), forwarded as-is to the zarr codec
             self.kwargs = kwargs
 
-        def to_zarr_compressor(self):
+        def to_zarr_compressor(self) -> str | BytesBytesCodec | None:
             """
             Convert the compression options to a zarr-compatible compression object.
 
@@ -110,6 +123,7 @@ class FileAbstraction(ABC):
                 A zarr-compatible compression object or None if no compression is specified.
             """
             kwargs = dict(self.kwargs)
+            compressor: str | BytesBytesCodec | None
             match self.type:
                 case FileAbstraction.Compression.DEFAULT:
                     # see https://zarr.readthedocs.io/en/stable/api/zarr/index.html#zarr.create_array
@@ -138,7 +152,7 @@ class FileAbstraction(ABC):
             return compressor
 
     @abstractmethod
-    async def open_dataset(self, full_path: str):
+    async def open_dataset(self, full_path: str) -> Any:
         """
         Open a dataset in the file.
 
@@ -151,7 +165,9 @@ class FileAbstraction(ABC):
         pass
 
     @abstractmethod
-    async def create_dataset(self, parent_group, name: str, data, chunk_size=None, compression: 'FileAbstraction.Compression' = None):
+    async def create_dataset(self, parent_group: Any, name: str, data: ArrayLike,
+                             chunk_size: tuple[int, ...] | None = None,
+                             compression: FileAbstraction.Compression | None = None) -> Any:
         """
         Create a dataset in the file.
 
@@ -167,7 +183,7 @@ class FileAbstraction(ABC):
     # -------------------- Listing --------------------
 
     @abstractmethod
-    async def list_objects(self, obj) -> list:
+    async def list_objects(self, obj: Any) -> Sequence[str]:
         """
         Lists the objects (groups or datasets) contained within one hierarchical level below the given object.
 
@@ -180,7 +196,7 @@ class FileAbstraction(ABC):
         pass
 
     @abstractmethod
-    async def object_exists(self, full_path) -> bool:
+    async def object_exists(self, full_path: str) -> bool:
         """
         Check if an object exists in the file.
 
@@ -193,7 +209,7 @@ class FileAbstraction(ABC):
         pass
 
     @abstractmethod
-    async def list_attributes(self, obj) -> list:
+    async def list_attributes(self, obj: Any) -> Iterable[str]:
         """
         Lists the attributes attached to the specified object.
 
@@ -207,7 +223,7 @@ class FileAbstraction(ABC):
 
     # -------------------- File Management --------------------
 
-    def close(self):
+    def close(self) -> None:
         """
         Close the file.
         """
@@ -237,7 +253,7 @@ class StoreType(Enum):
     AUTO = 'auto' 
     """Automatically determine the store type based on the filename (i.e. extension or url schema)"""
 
-async def _async_getitem(obj, indices: tuple):
+async def _async_getitem(obj: Any, indices: tuple[Any, ...] | list[Any] | int | slice | EllipsisType) -> Any:
         """
         Asynchronously get a slice of an object that supports indexing and slicing.
         
@@ -265,45 +281,48 @@ async def _async_getitem(obj, indices: tuple):
         else:
             raise ValueError(f"Object of type '{type(obj)}' does not support indexing and slicing.")
 
-def _gather_sync(*aws, return_exceptions: bool = False):
+def _gather_sync(*aws: Awaitable[Any], return_exceptions: bool = False) -> list[Any]:
     """
     Sync version of asyncio.gather.
     Args: same as asyncio.gather
     """
-    async def _f():
+    async def _f() -> list[Any]:
         return await asyncio.gather(*aws, return_exceptions=return_exceptions)
     return sync(_f())
 
 import sys
-if "pyodide" in sys.modules:  # using javascript based zarr library
+# N.B. `not TYPE_CHECKING` is always True at runtime, so the condition below is equivalent to
+# `"pyodide" in sys.modules`. It only tells static type checkers (mypy) to analyze
+# the zarr-based implementation (`else` branch), since both branches define the same names.
+if not TYPE_CHECKING and "pyodide" in sys.modules:  # using javascript based zarr library
     import pyodide
     import js
     
-    async def _awaitable_wrapper(coro):
+    async def _awaitable_wrapper(coro: Awaitable[_T]) -> _T:
         return await coro
-    def sync(coro):
+    def sync(coro: Coroutine[Any, Any, _T]) -> _T:
         """"
         Synchronously run an asynchronous coroutine.
         """
-        return pyodide.ffi.run_sync(coro)
+        return pyodide.ffi.run_sync(coro)  # type: ignore[no-any-return]
 
     class _zarrFile:
         class ZarrArray:
-            def __init__(self, zarr_js, dts):
+            def __init__(self, zarr_js: Any, dts: Any) -> None:
                 self._zarr_js = zarr_js
                 self.dts = dts            
-            def __str__(self):
+            def __str__(self) -> str:
                 return str(self.dts)
-            def __array__(self, dtype=None, copy=None):
+            def __array__(self, dtype: Any = None, copy: Any = None) -> NDArray[Any]:
                 #TODO: implement dtype and copy
                 # see https://numpy.org/doc/stable/user/basics.interoperability.html#dunder-array-interface
                 return self[...]
-            async def to_np_array(self, dtype=None, copy=None):
+            async def to_np_array(self, dtype: Any = None, copy: Any = None) -> NDArray[Any]:
             # same as __array__ but using async code
                 return np.array(await self.getitem(...))
             
-            async def getitem(self, index):
-                def index_to_js_slice(i):
+            async def getitem(self, index: tuple[Any, ...] | int | slice | EllipsisType) -> NDArray[Any]:
+                def index_to_js_slice(i: Any) -> list[Any]:
                     if isinstance(i, slice):
                         return [i.start, i.stop]
                     elif isinstance(i, type(Ellipsis)):
@@ -321,14 +340,14 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                     if len(index)-1>n_dim:
                         raise ValueError(f"Expected at most {n_dim} indices and got {len(index)} instead!")
                     n_null_indices = 1 + n_dim-len(index)
-                    new_index = ()
+                    new_index: tuple[Any, ...] = ()
                     for i in index:
                         if isinstance(i, type(Ellipsis)):
                             new_index += (slice(None),)*n_null_indices
                         else:
                             new_index += (i,)
                     index = new_index     
-                js_indices = []
+                js_indices: list[list[Any]] = []
                 for i in index:
                     js_indices.append(index_to_js_slice(i))
                 
@@ -339,18 +358,18 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                 data = np.reshape(data, shape)
                 
                 # remove singleton dimensions
-                singleton_dims = ()
+                singleton_dims: tuple[int, ...] = ()
                 for i, ind in enumerate(index):
                     if isinstance(ind, int):
                         singleton_dims += (i,)
                 if len(singleton_dims)>0:
                     data = np.squeeze(data, axis=singleton_dims)
-                return data            
-            def __getitem__(self, index):
+                return data  # type: ignore[no-any-return]            
+            def __getitem__(self, index: tuple[Any, ...] | int | slice | EllipsisType) -> NDArray[Any]:
                 return sync(self.getitem(index))
             
             @property
-            def shape(self):
+            def shape(self) -> list[int]:
                 if hasattr(self, '_shape'):
                     return self._shape
                 else:
@@ -358,15 +377,15 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                     self._shape = _zarrFile.JsProxy_to_py(res)
                     return self._shape
             @property
-            def size(self):
+            def size(self) -> np.integer[Any]:
                 return np.prod(self.shape)
 
             @property
-            def ndim(self):
+            def ndim(self) -> int:
                 return len(self.shape)
             
 
-        def __init__(self, zarr_js, filename:str,  *, version: Version = None):
+        def __init__(self, zarr_js: Any, filename:str,  *, version: Version = None) -> None:
             """
             Initialize the Zarr file.
             Args:
@@ -380,14 +399,14 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
             self.version = version
 
         @staticmethod
-        def JsProxy_to_py(jsproxy):
+        def JsProxy_to_py(jsproxy: Any) -> Any:
             #alternatively one can use isinstance(jsproxy, pyodide.ffi.JsProxy)
             if hasattr(jsproxy, "to_py"):
                 return jsproxy.to_py()
             return jsproxy
         
         # -------------------- Attribute Management --------------------
-        async def get_attr(self, full_path, attr_name): 
+        async def get_attr(self, full_path: Any, attr_name: Any) -> Any: 
             try: 
                 res = await self._zarr_js.get_attribute(str(full_path), str(attr_name))
             except pyodide.ffi.JsException as exc:
@@ -397,29 +416,29 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
             return _zarrFile.JsProxy_to_py(res)
         
         # -------------------- Group Management --------------------
-        async def open_group(self, full_path: str):
+        async def open_group(self, full_path: str) -> Any:
             res = await self._zarr_js.open_group(str(full_path))
             return res
         
         # -------------------- Dataset Management --------------------
-        async def open_dataset(self, full_path: str):
+        async def open_dataset(self, full_path: str) -> ZarrArray:
             dts = await self._zarr_js.open_dataset(str(full_path))
             return _zarrFile.ZarrArray(self._zarr_js, dts)
         
         # -------------------- Listing --------------------
-        async def list_objects(self, full_path) -> list:
+        async def list_objects(self, full_path: Any) -> list[str]:
             res = await self._zarr_js.list_objects(str(full_path))
-            return _zarrFile.JsProxy_to_py(res)
-        async def object_exists(self, full_path) -> bool:
+            return _zarrFile.JsProxy_to_py(res)  # type: ignore[no-any-return]
+        async def object_exists(self, full_path: Any) -> bool:
             res = await self._zarr_js.object_exists(str(full_path))
-            return _zarrFile.JsProxy_to_py(res)
-        async def list_attributes(self, full_path) -> list:
+            return _zarrFile.JsProxy_to_py(res)  # type: ignore[no-any-return]
+        async def list_attributes(self, full_path: Any) -> list[str]:
             res = await self._zarr_js.list_attributes(str(full_path))
-            return _zarrFile.JsProxy_to_py(res)
+            return _zarrFile.JsProxy_to_py(res)  # type: ignore[no-any-return]
         
          # -------------------- File Management --------------------
 
-        def close(self):
+        def close(self) -> None:
             pass
 
         # -------------------- Properties --------------------
@@ -431,12 +450,13 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
     _ZarrArray = _zarrFile.ZarrArray
 else:
     import zarr
+    import zarr.codecs
     import numcodecs
 
     import importlib.util
 
     import zarr.api.asynchronous as zarr_async
-    def sync(coro):
+    def sync(coro: Coroutine[Any, Any, _T]) -> _T:
         """"
         Synchronously run an asynchronous coroutine.
         """
@@ -447,7 +467,7 @@ else:
     _ZarrAsyncArray = zarr.AsyncArray
     _ZarrArray = zarr.Array
     
-    def _parse_storage_url(url):
+    def _parse_storage_url(url: str) -> dict[str, str]:
         from urllib.parse import urlparse
 
         parsed = urlparse(url)
@@ -496,8 +516,8 @@ else:
     
 
     class _zarrFile (FileAbstraction):
-        def __init__(self, filename: str, mode: str = 'r',
-                     store_type: StoreType = StoreType.AUTO, *, version: Version = None):
+        def __init__(self, filename: str, mode: Literal['r', 'r+', 'a', 'w', 'w-'] = 'r',
+                     store_type: StoreType = StoreType.AUTO, *, version: Version = None) -> None:
             """
             Initialize the Zarr file.
 
@@ -532,14 +552,18 @@ else:
                 raise ValueError(
                     f"Invalid mode '{mode}'. Supported modes are 'r', 'r+', 'a', 'w', and 'w-'.")
 
+            store: Store
             match store_type:
                 case st.ZIP:
-                    mode_zip = mode
+                    mode_zip: Literal['r', 'w', 'a', 'x']
                     if mode == 'w-':
                         mode_zip = 'x'
                     elif mode == 'r+':
                         mode_zip = 'a'
-                    store = zarr.storage.ZipStore(filename, mode=mode_zip)
+                    else:
+                        mode_zip = mode
+                    # the cast is needed to fix a bug in zarr (which should be solved after https://github.com/zarr-developers/zarr-python/commit/a429d16429888aa2b9f2ca3b8adfa8c4781d6036 is released)
+                    store = zarr.storage.ZipStore(filename, mode=cast("Literal['r', 'w', 'a']" ,mode_zip))
                 case st.ZARR:
                     # TODO: Add support for the other modes
                     store = zarr.storage.LocalStore(filename, read_only=(mode == 'r'))
@@ -565,7 +589,7 @@ else:
 
         # -------------------- Attribute Management --------------------
 
-        async def create_attr(self, obj, name: str, data, **kwargs):
+        async def create_attr(self, obj: Any, name: str, data: Any, **kwargs: Any) -> None:
             for k in kwargs.keys():
                 warnings.warn(
                     f"'{k}' argument not supported by 'create_attr' in zarr")
@@ -581,87 +605,88 @@ else:
             attrs[name] = data
             await obj.update_attributes(attrs) 
 
-        async def get_attr(self, obj, name: str):
+        async def get_attr(self, obj: Any, name: str) -> Any:
             if isinstance(obj, str):
                 obj = await self._root.getitem(obj)
             return obj.attrs[name]
 
         # -------------------- Group Management --------------------
 
-        async def open_group(self, full_path: str, **kwargs):
+        async def open_group(self, full_path: str, **kwargs: Any) -> Any:
             for k in kwargs.keys():
                 warnings.warn(
                     f"'{k}' argument not supported by 'open_group' in zarr")
             g = await self._root.getitem(full_path)
             return g
 
-        async def create_group(self, full_path: str):
+        async def create_group(self, full_path: str) -> Any:  # type: ignore[override]
             g = await self._root.create_group(full_path)
             return g
 
         # -------------------- Dataset Management --------------------
 
         @staticmethod
-        def _to_ZarrArray(obj: zarr.AsyncArray):
+        def _to_ZarrArray(obj: zarr.AsyncArray[Any]) -> zarr.AsyncArray[Any]:
             """"
             Add attributes to Zarr.AsyncArray object to support numpy indexing and slicing.
             
             N.B. this is a temporary fix to make existing code compatible with zarr.AsyncArray
                  Don't add any new functionality here and consider changing it in the future!
             """ 
-            class _ZarrArray(zarr.AsyncArray):
-                def __array__(self, dtype=None, copy=None):
+            class _ZarrArray(zarr.AsyncArray):  # type: ignore[type-arg]
+                def __array__(self, dtype: Any = None, copy: Any = None) -> NDArray[Any]:
                 # N.B. this is calling `sync` internally, so it shouldn't be used in async functions!!
-                    return zarr.Array(self).__array__(dtype=dtype, copy=copy)
-                async def to_np_array(self, dtype=None, copy=None):
+                    return cast("NDArray[Any]", zarr.Array(self).__array__(dtype=dtype, copy=copy))
+                async def to_np_array(self, dtype: Any = None, copy: Any = None) -> NDArray[Any]:
                 # same as __array__ but using async code
                     return np.array(await self.getitem(...))
-                def __getitem__(self, index):
+                def __getitem__(self, index: Any) -> Any:
                 # N.B. this is calling `sync` internally, so it shouldn't be used in async functions!!
                     return zarr.Array(self).__getitem__(index)
             # since @dataclass(frozen=True), we need to use object.__setattr__
             object.__setattr__(obj, '__class__', _ZarrArray)
             return obj
 
-        async def open_dataset(self, full_path: str):
+        async def open_dataset(self, full_path: str) -> Any:
             ds = await self._root.getitem(full_path)
             # "upgrade" the object to a _ZarrArray
-            ds=_zarrFile._to_ZarrArray(ds)
+            ds=_zarrFile._to_ZarrArray(cast("zarr.AsyncArray[Any]", ds))
             return ds
 
-        async def create_dataset(self, parent_group, name: str, data, chunk_size=None, compression: 'FileAbstraction.Compression' = FileAbstraction.Compression()):
+        async def create_dataset(self, parent_group: Any, name: str, data: ArrayLike,
+                                 chunk_size: tuple[int, ...] | None = None,
+                                 compression: FileAbstraction.Compression | None = FileAbstraction.Compression()) -> Any:
             if isinstance(parent_group, str):
                 parent_group = await self.open_group(parent_group)
             compressor = None
-            if chunk_size is None:
-                chunk_size = 'auto'
+            chunks: tuple[int, ...] | str = 'auto' if chunk_size is None else chunk_size
             if compression is not None:
                 compressor = compression.to_zarr_compressor()
             ds = await parent_group.create_array(
                 name=name, data=data,
-                chunks=chunk_size, compressors=compressor)
+                chunks=chunks, compressors=compressor)
             # "upgrade" the object to a _ZarrArray
             ds = _zarrFile._to_ZarrArray(ds)
             return ds
 
         # -------------------- Listing --------------------
 
-        async def list_objects(self, obj):
+        async def list_objects(self, obj: Any) -> tuple[str, ...]:
             if isinstance(obj, str):
                 obj = await self._root.getitem(obj)
             return tuple([str(el) async for el in obj.keys()])
 
-        async def object_exists(self, full_path) -> bool:
+        async def object_exists(self, full_path: str) -> bool:
             return await self._root.contains(full_path)
 
-        async def list_attributes(self, obj):
+        async def list_attributes(self, obj: Any) -> Iterator[str]:
             if isinstance(obj, str):
                 obj = await self._root.getitem(obj)
             return (str(attr) for attr in obj.attrs.keys())
 
         # -------------------- File Management --------------------
 
-        def close(self):
+        def close(self) -> None:
             self._store.close()
 
         # -------------------- Properties --------------------
