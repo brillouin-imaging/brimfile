@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from brimfile import File, StoreType, Data
 from brimfile.file_abstraction import sync
 import numpy as np
 import h5py
+from typing import Any
 
 LABELS = ['Shift', 'Width', 'Amplitude', 'Offset', 'R2', 'RMSE', 'Cov_matrix'] # list all Carlo's dataset types
 BRILLOUIN_TYPE_MAPPING = { # mapping initial collection of dataset names from Carlo: Pierre,
@@ -17,7 +20,8 @@ class BrimConverter:
 
     This utility is experimental and primarily intended for migration workflows.
     """
-    def __init__(self, filename_from, filename_to, mode='brim2brimX', stop_at=None, map_to='cartesian'):
+    def __init__(self, filename_from: str, filename_to: str, mode: str = 'brim2brimX',
+                 stop_at: int | None = None, map_to: str = 'cartesian') -> None:
         if mode not in ['brim2brimX', 'brimX2brim']:
             raise ValueError(f"Unsupported mode: {mode}. Use 'brim2brimX' or 'brimX2brim'.")
 
@@ -26,8 +30,11 @@ class BrimConverter:
         self.mode = mode # conversion type
         self.stop_at = stop_at # for big files, option to only convert part of the dataset, more for testing/debugging
         self.map_to = map_to # for brim to brimX, allows brimX to be stored in cartesian shapes or flat
+        # input/output files (set when running `convert`); depending on the mode they are brim or brimX/HDF5 files
+        self.f_from: File | h5py.File
+        self.f_to: File | h5py.File
 
-    def convert(self):
+    def convert(self) -> None:
         """
         Execute the configured conversion workflow.
 
@@ -48,7 +55,7 @@ class BrimConverter:
         self.f_from.close()
         self.f_to.close()
 
-    def _convert_brim_to_brimX(self):
+    def _convert_brim_to_brimX(self) -> None:
         print('Converting from brim to brimX...') # could pass file names and extensions as well...
         self.data_groups = self.f_from.list_data_groups(retrieve_custom_name=True)
         if self.stop_at:
@@ -58,11 +65,11 @@ class BrimConverter:
         for idx in range(num_iters): 
             self._process_data_group_brim2brimX(idx)
 
-    def _convert_brimX_to_brim(self):
+    def _convert_brimX_to_brim(self) -> None:
         print('Converting from brimX to brim...') # could pass file names and extensions as well...
         self._process_data_group_brimX2brim()
 
-    def _process_data_group_brim2brimX(self, index):
+    def _process_data_group_brim2brimX(self, index: int) -> None:
         """ 
         Function to do the heavy lifting for loading a brim file (arbitrary file extension), 
         extracting the relevant quantities, reformatting, and then passing back through brim with
@@ -87,7 +94,10 @@ class BrimConverter:
 
         # scrape spatial information and store locally
         cv, px_size = sync(d._load_spatial_mapping_async()) # extract z, y, x pixel sizes
-        dz, dy, dx = px_size[0].value, px_size[1].value, px_size[2].value # store them
+        dz: Any = px_size[0].value # store them
+        dy: Any = px_size[1].value
+        dx: Any = px_size[2].value
+        assert cv is not None
         Nz, Ny, Nx = cv.shape # store data shape for z, y, x
         z, y, x = np.arange(Nz)*dz, np.arange(Ny)*dy, np.arange(Nx)*dx # TODO: SAL, FOR WRITING TO ABSCISSA IN FUTURE
 
@@ -142,7 +152,7 @@ class BrimConverter:
 
         # TODO: Sal, properly deal with metadata!
 
-    def _process_data_group_brimX2brim(self):
+    def _process_data_group_brimX2brim(self) -> None:
         """ 
         Function to do the heavy lifting for loading a brimX file (h5 from HDF5_BLS), scraping the
         relevant quantities from the brimX format (HDF5Flattener class), reshaping as necessary, 
@@ -174,7 +184,7 @@ class BrimConverter:
             # create data group in brim file, populate with PSD, freq, and spatial info
             d = self.f_to.create_data_group(PSD, freq, (dz, dy, dx), name=f"Group_{i}")
 
-            analysis_dict = {}
+            analysis_dict: dict[str, Any] = {}
 
             if shift is not None:
                 analysis_dict["shift"] = shift
@@ -192,5 +202,5 @@ class BrimConverter:
             # TODO: port metadata_all[i] into .create_metadata_group or similar
 
     # TODO: below
-    def _write_metadata(self, data_group, metadata_dict):
+    def _write_metadata(self, data_group: Any, metadata_dict: Any) -> None:
         pass

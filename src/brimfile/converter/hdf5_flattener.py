@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import h5py
 import numpy as np
 from collections import defaultdict
+from typing import Any
 
 TREATMENT_LEVEL = ['Shift', 'Shift_std', 'Linewidth', 'Linewidth_std', 'Amplitude', 
                    'Amplitude_std', 'BLT', 'BLT_std']
@@ -25,37 +28,37 @@ class HDF5Flattener:
             a dictionary of brim-ready arrays containing the Brillouin data, invoked by .flatten() in driver
         TODO: currently leaks Impulse response and Calibration data sets
     """
-    def __init__(self):
-        self.acq_path_to_index = {}
-        self.acq_path_to_metadata_index = {}
-        self.flat_shape = {}
+    def __init__(self) -> None:
+        self.acq_path_to_index: dict[str, int] = {}
+        self.acq_path_to_metadata_index: dict[str, int] = {}
+        self.flat_shape: dict[Any, Any] | int = {}
         self.data_index = 0
         self.data_metadata_index = 0
 
-        self.frequency = {}
-        self.PSD = {}
-        self.x = {}
-        self.y = {}
-        self.z = {}
-        self.dx = {}
-        self.dy = {}
-        self.dz = {}
-        self.shift_as = {}
-        self.shift_std_as = {}
-        self.width_as = {}
-        self.width_std_as = {}
-        self.amplitude_as = {}
-        self.amplitude_std_as = {}
-        self.blt_as = {}
-        self.blt_std_as = {}
+        self.frequency: dict[int, Any] = {}
+        self.PSD: dict[int, Any] = {}
+        self.x: dict[int, Any] = {}
+        self.y: dict[int, Any] = {}
+        self.z: dict[int, Any] = {}
+        self.dx: dict[int, Any] = {}
+        self.dy: dict[int, Any] = {}
+        self.dz: dict[int, Any] = {}
+        self.shift_as: dict[int, Any] = {}
+        self.shift_std_as: dict[int, Any] = {}
+        self.width_as: dict[int, Any] = {}
+        self.width_std_as: dict[int, Any] = {}
+        self.amplitude_as: dict[int, Any] = {}
+        self.amplitude_std_as: dict[int, Any] = {}
+        self.blt_as: dict[int, Any] = {}
+        self.blt_std_as: dict[int, Any] = {}
 
-        self.metadata = {}
-        self.dataset_queue = []  # store all datasets for ordered processing
+        self.metadata: dict[int, dict[str, Any]] = {}
+        self.dataset_queue: list[Any] = []  # store all datasets for ordered processing
 
         # Store paths of groups that are of Brillouin_type == "Measure"
-        self.measure_paths = set()
+        self.measure_paths: set[str] = set()
 
-    def collect_measure_groups(self, name, obj):
+    def collect_measure_groups(self, name: str, obj: Any) -> None:
         """Pre-scan to find all group paths that are 'Measure' acquisition groups"""
         if isinstance(obj, h5py.Group):
             #rint(f"\nVisited group: {name}")
@@ -68,7 +71,7 @@ class HDF5Flattener:
                 self.measure_paths.add(name)
                 #print(f"Found 'Measure' group: {name}")  # highlight matched groups
 
-    def collect_metadata(self, name, obj):
+    def collect_metadata(self, name: str, obj: Any) -> None:
         base_acq = self.get_base_acquisition_path(name)
         if base_acq is None:
             return
@@ -89,7 +92,7 @@ class HDF5Flattener:
             if attr_key.startswith(("FILEPROP", "MEASURE", "SPECTROMETER")): # Pierre's end
                 self.metadata[jdx][attr_key] = obj.attrs[attr_key] 
 
-    def get_base_acquisition_path(self, name):
+    def get_base_acquisition_path(self, name: str) -> str | None:
         """Returns acquisition path if it is a child of a 'Measure' group"""
         parts = name.split('/')
         for i in range(len(parts), 0, -1):
@@ -98,7 +101,7 @@ class HDF5Flattener:
                 return candidate
         return None   
 
-    def copy_dataset(self, name, obj):
+    def copy_dataset(self, name: str, obj: Any) -> None:
         """
         visit directories that have been identified as containing Brillouin datasets, then based on 
         what is found, scrape the data, reshape it if necessary (e.g. PSD), then store locally for
@@ -166,7 +169,7 @@ class HDF5Flattener:
                 raise ValueError(f"{bt} of shape {obj.shape} is not supported")            
         
     # sees the outside world
-    def flatten(self, src_path):
+    def flatten(self, src_path: str) -> dict[str, dict[int, Any]]:
         """
         __________
         Input: 
