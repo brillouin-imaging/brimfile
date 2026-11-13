@@ -1,28 +1,28 @@
 from __future__ import annotations
 
-import numpy as np
 import asyncio
-
 import warnings
-
 from enum import Enum
+from typing import TYPE_CHECKING, cast
 
-from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
+import numpy as np
+
 from . import units
-from .utils import var_to_singleton, concatenate_paths, get_object_name
 from .constants import brim_obj_names
-
+from .file_abstraction import FileAbstraction, _async_getitem, _gather_sync, sync
 from .fitting_models import FitModel
-
 from .metadata import Metadata
 from .physics import Brillouin_shift_water, Brillouin_width_water
+from .utils import concatenate_paths, get_object_name, var_to_singleton
 
-from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
-    from typing import Any, TypeAlias
     from types import EllipsisType
+    from typing import Any, TypeAlias
+
     from numpy.typing import ArrayLike, NDArray
+
     from ._types import _3DIntCoord
+
     # import here to avoid circular imports
     from .data import Data
 
@@ -99,7 +99,7 @@ class AnalysisResults:
         return sync(get_object_name(self._file, self._path))
 
     @classmethod
-    def _create_new(cls, data: 'Data', *, index: int, sparse: bool = False) -> 'AnalysisResults':
+    def _create_new(cls, data: Data, *, index: int, sparse: bool = False) -> AnalysisResults:
         """
         Create a new AnalysisResults group.
 
@@ -205,7 +205,7 @@ class AnalysisResults:
             PSD = sync(self._file.open_dataset(concatenate_paths(
                 self._data_group_path, brim_obj_names.data.PSD)))
             PSD_nonspectral_shape = PSD.shape[:-1]
-        except Exception as e:
+        except Exception:
             warnings.warn("It is recommended to add the PSD dataset before adding the analysis results, to ensure the correct shape of the analysis results data.")
 
         if data_AntiStokes is not None:
@@ -303,7 +303,7 @@ class AnalysisResults:
                 f"Could not compute Viscous_contrast from metadata ({e}).")
 
     @property
-    def fit_model(self) -> 'AnalysisResults.FitModel':
+    def fit_model(self) -> AnalysisResults.FitModel:
         """
         Retrieve the fit model used for the analysis.
 
@@ -536,7 +536,7 @@ class AnalysisResults:
             for i, opened_qt in enumerate(opened_dts):
                 if not isinstance(opened_qt, Exception):
                     qts_ls += (qts[i],)
-                    dts_ls += (opened_dts[i],)
+                    dts_ls += (opened_qt,)
             # get the values at the specified index
             full_index: tuple[Any, ...]
             if isinstance(index, tuple):
@@ -605,14 +605,14 @@ class AnalysisResults:
             pt (PeakType)  
             intex (int): in case of multiple peaks fitted, the index of the peak to consider       
         """
-        if not pt in (cls.PeakType.AntiStokes, cls.PeakType.Stokes):
+        if pt not in (cls.PeakType.AntiStokes, cls.PeakType.Stokes):
             raise ValueError("pt has to be either Stokes or AntiStokes")
         if qt in (cls.Quantity.Elastic_contrast, cls.Quantity.Viscous_contrast):
             raise ValueError(f"{qt.value} is a computed quantity and is not stored in the file.")
         if qt == cls.Quantity.R2 or qt == cls.Quantity.RMSE or qt == cls.Quantity.Cov_matrix:
-            name = f"Fit_error_{str(pt.value)}_{index}/{str(qt.value)}"
+            name = f"Fit_error_{pt.value!s}_{index}/{qt.value!s}"
         else:
-            name = f"{str(qt.value)}_{str(pt.value)}_{index}"
+            name = f"{qt.value!s}_{pt.value!s}_{index}"
         return name
 
     async def _get_quantity(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> Any:

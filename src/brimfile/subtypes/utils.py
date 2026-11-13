@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from ..file_abstraction import sync, FileAbstraction
+from ..file_abstraction import FileAbstraction, sync
 from .constants import SubType
+
 
 def get_subtype(f: FileAbstraction) -> SubType:
     """

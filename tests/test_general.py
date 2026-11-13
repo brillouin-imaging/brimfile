@@ -1,11 +1,10 @@
-import numpy as np
-
 import os
 import shutil
+from datetime import datetime
+
+import numpy as np
 
 import brimfile as brim
-
-from datetime import datetime
 
 
 def generate_data():

@@ -1,19 +1,23 @@
 from __future__ import annotations
 
-import numpy as np
 import asyncio
 import warnings
-
-from .file_abstraction import FileAbstraction, _async_getitem, sync, _gather_sync
-from .utils import concatenate_paths, list_objects_matching_pattern_async
-from . import units
-from .metadata.types import MetadataItem
-
 from typing import TYPE_CHECKING
+
+import numpy as np
+
+from . import units
+from .file_abstraction import FileAbstraction, _async_getitem, _gather_sync, sync
+from .metadata.types import MetadataItem
+from .utils import concatenate_paths, list_objects_matching_pattern_async
+
 if TYPE_CHECKING:
     from typing import Any
-    from ._types import _3DIntCoord
+
     from numpy.typing import NDArray
+
+    from ._types import _3DIntCoord
+
     # import Data only for type checking to avoid circular imports
     from .data import Data
 

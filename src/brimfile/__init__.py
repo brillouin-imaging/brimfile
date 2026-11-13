@@ -377,6 +377,7 @@ except ImportError:
     __version__ = "unknown"
 
 import os
+
 # Default: normal imports enabled.
 # Override with env var: BRIMFILE_IMPORT_VALIDATION_ONLY=1
 _IMPORT_VALIDATION_ONLY = os.getenv("BRIMFILE_IMPORT_VALIDATION_ONLY", "").lower() in {
@@ -384,11 +385,11 @@ _IMPORT_VALIDATION_ONLY = os.getenv("BRIMFILE_IMPORT_VALIDATION_ONLY", "").lower
 }
 
 if not _IMPORT_VALIDATION_ONLY:
-    from .file import File
-    from .data import Data
     from .analysis_results import AnalysisResults
     from .calibration import Calibration
-    from .metadata import Metadata
+    from .data import Data
+    from .file import File
     from .file_abstraction import StoreType
+    from .metadata import Metadata
 
-    __all__ = ["File", "Data", "AnalysisResults", "Calibration", "Metadata", "StoreType"]
+    __all__ = ["AnalysisResults", "Calibration", "Data", "File", "Metadata", "StoreType"]

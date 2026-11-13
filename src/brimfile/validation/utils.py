@@ -4,9 +4,11 @@ import re
 from enum import StrEnum
 from operator import index
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from collections.abc import Sequence    
+    from collections.abc import Sequence
 from typing import Any, NewType
+
 _Node = NewType('_Node', dict[str, Any])
 
 _NUMERIC_DTYPE_ALIASES = {
@@ -108,8 +110,7 @@ def is_numeric_dtype(dtype: str) -> bool:
     if normalized.startswith("<class '") and normalized.endswith("'>"):
         normalized = normalized[8:-2]
 
-    if normalized.startswith('numpy.'):
-        normalized = normalized[6:]
+    normalized = normalized.removeprefix('numpy.')
 
     if normalized and normalized[0] in {'<', '>', '=', '|'}:
         normalized = normalized[1:]

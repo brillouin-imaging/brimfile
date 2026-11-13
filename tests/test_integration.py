@@ -2,19 +2,18 @@
 Integration tests for brimfile - testing complete workflows.
 """
 
-import pytest
-import numpy as np
+import json
 import os
 from datetime import datetime
-import json
 
+import numpy as np
+import pytest
 
 import brimfile as brim
 from brimfile.metadata.schema import METADATA_SCHEMA
-from brimfile.validation.main import ValidationLevel, ValidationType, validate_json
 from brimfile.validation.json_descriptor import generate_json_descriptor
+from brimfile.validation.main import ValidationLevel, ValidationType, validate_json
 from brimfile.validation.versions import get_supported_versions
-
 
 SUPPORTED_VERSIONS = get_supported_versions()
 

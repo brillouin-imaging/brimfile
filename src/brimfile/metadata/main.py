@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from typing import Any, TypeAlias
 
-from ..file_abstraction import FileAbstraction, sync, _gather_sync
-from . import schema, validation
-from .types import MetadataItem, MetadataItemValidity
+import asyncio
+import numbers
+import warnings
 
 from .. import units
 from ..constants import brim_obj_names, reserved_attr_names
-
-import warnings, numbers, asyncio
+from ..file_abstraction import FileAbstraction, _gather_sync, sync
+from . import schema, validation
+from .types import MetadataItem, MetadataItemValidity
 
 
 class Metadata:
@@ -68,7 +70,7 @@ class Metadata:
             dict: A dictionary containing MetadataItem objects, e.g. {"Temperature": MetadataItem(24, "C")}.
         """
         out_dict: dict[str, MetadataItem] = {}
-        for key in raw_dict.keys():
+        for key in raw_dict:
             if key not in reserved_attr_names:
                 if not key.endswith('_units'):
                     u = raw_dict.get(f"{key}_units", None)
@@ -181,7 +183,7 @@ class Metadata:
             metadata_dict = await self._file.get_attr(self._path, 'Metadata')
         except Exception:
             if not create_if_missing:
-                warnings.warn(f"General metadata group not found in the file.")
+                warnings.warn("General metadata group not found in the file.")
                 return {t.value: {} for t in Metadata.Type}
             # if the metadata group does not exist, create it
             for type in Metadata.Type:
@@ -401,7 +403,7 @@ class Metadata:
         if not isinstance(wl.value, numbers.Number):
             raise TypeError(f"Wavelength value must be a number, got {type(wl.value).__name__}.")
         if wl.units is None:
-            warnings.warn(f"Wavelength metadata has no units defined. Assuming the value is in nm.")
+            warnings.warn("Wavelength metadata has no units defined. Assuming the value is in nm.")
             return float(wl.value)
         unit = str(wl.units).lower()
         value = float(wl.value)
@@ -426,7 +428,7 @@ class Metadata:
         if not isinstance(t.value, numbers.Number):
             raise TypeError(f"Temperature value must be a number, got {type(t.value).__name__}.")
         if t.units is None:
-            warnings.warn(f"Temperature metadata has no units defined. Assuming the value is in Celsius.")
+            warnings.warn("Temperature metadata has no units defined. Assuming the value is in Celsius.")
             return float(t.value)
         unit = str(t.units).lower()
         value = float(t.value)
@@ -449,7 +451,7 @@ class Metadata:
         if not isinstance(sa.value, numbers.Number):
             raise TypeError(f"Scattering angle value must be a number, got {type(sa.value).__name__}.")
         if sa.units is None:
-            warnings.warn(f"Scattering angle metadata has no units defined. Assuming the value is in degrees.")
+            warnings.warn("Scattering angle metadata has no units defined. Assuming the value is in degrees.")
             return float(sa.value)
         unit = str(sa.units).lower()
         value = float(sa.value)

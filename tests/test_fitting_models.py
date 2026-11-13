@@ -5,7 +5,6 @@ import builtins
 
 import numpy as np
 
-
 from brimfile.fitting_models import FitModel, gaussian, get_fit_model, lorentzian, voigt
 
 

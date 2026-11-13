@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from brimfile import File, StoreType, Data
-from brimfile.file_abstraction import sync
-import numpy as np
-import h5py
 from typing import Any
+
+import h5py
+import numpy as np
+
+from brimfile import Data, File, StoreType
+from brimfile.file_abstraction import sync
 
 LABELS = ['Shift', 'Width', 'Amplitude', 'Offset', 'R2', 'RMSE', 'Cov_matrix'] # list all Carlo's dataset types
 BRILLOUIN_TYPE_MAPPING = { # mapping initial collection of dataset names from Carlo: Pierre,
@@ -163,7 +165,7 @@ class BrimConverter:
         Returns:
             nothing, it saves the new file to the filepath specified by the user on input
         """        
-        from .hdf5_flattener import HDF5Flattener 
+        from .hdf5_flattener import HDF5Flattener
         flattener = HDF5Flattener()
         
         # load file_from and enforce flattened dataset shapes for the brimfile pass, then create new brim file

@@ -2,14 +2,13 @@
 Unit tests for the File class in brimfile.
 """
 
-import pytest
 import os
-import zarr
 
+import pytest
+import zarr
 
 import brimfile as brim
 from brimfile.validation.versions import get_supported_versions
-
 
 SUPPORTED_VERSIONS = get_supported_versions()
 class TestFileCreation:

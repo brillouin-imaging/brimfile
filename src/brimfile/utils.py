@@ -1,10 +1,13 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 import re
+from typing import TYPE_CHECKING
+
 import numpy as np
+
 if TYPE_CHECKING:
     from typing import Any
+
     from numpy.typing import NDArray
 
 from .file_abstraction import FileAbstraction, sync
@@ -22,10 +25,8 @@ def concatenate_paths(*paths: str) -> str:
     """
     con_path = ''
     for path in paths:
-        if path.endswith('/'):
-            path = path[:-1]
-        if path.startswith('/'):
-            path = path[1:]
+        path = path.removesuffix('/')
+        path = path.removeprefix('/')
         con_path += '/' + path
     return con_path
 
@@ -65,7 +66,7 @@ async def get_object_name(file: FileAbstraction, obj_path: str) -> str:
         name = await file.get_attr(obj_path, 'Name')
         if name is None or name == '':
             raise Exception("Name attribute is None")
-    except Exception as e:
+    except Exception:
         name = obj_path.split('/')[-1]
     return name
 
