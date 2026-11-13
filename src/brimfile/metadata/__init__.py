@@ -1,23 +1,23 @@
 from .main import Metadata
-from .schema import print_schema
 from .schema import (
-    ImmersionMedium, 
-    SignalType, 
-    PhononsMeasured, 
-    PolarizationProbedAnalyzed, 
-    ScanningStrategy, 
-    SpectrometerType,
     DetectorType,
+    ImmersionMedium,
+    PhononsMeasured,
+    PolarizationProbedAnalyzed,
+    ScanningStrategy,
+    SignalType,
+    SpectrometerType,
+    print_schema,
 )
 
 __all__ = [
-    "Metadata",
-    "print_schema",
+    "DetectorType",
     "ImmersionMedium",
-    "SignalType",
+    "Metadata",
     "PhononsMeasured",
     "PolarizationProbedAnalyzed",
     "ScanningStrategy",
+    "SignalType",
     "SpectrometerType",
-    "DetectorType",
+    "print_schema",
 ]

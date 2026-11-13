@@ -2,15 +2,15 @@
 Unit tests for the Metadata class in brimfile.
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 import zarr
 
 import brimfile as brim
-from brimfile.metadata.types import MetadataItemValidity
 from brimfile.metadata.schema import METADATA_SCHEMA
+from brimfile.metadata.types import MetadataItemValidity
 from brimfile.validation.versions import get_supported_versions
-
 
 SUPPORTED_VERSIONS = get_supported_versions()
 

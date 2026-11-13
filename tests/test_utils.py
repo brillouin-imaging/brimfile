@@ -6,12 +6,11 @@ Unit tests for utility functions in brimfile.
 import numpy as np
 import pytest
 
-
 from brimfile.utils import (
-    concatenate_paths,
-    var_to_singleton,
-    np_array_to_smallest_int_type,
     _determine_chunk_size,
+    concatenate_paths,
+    np_array_to_smallest_int_type,
+    var_to_singleton,
 )
 
 
@@ -115,7 +114,6 @@ class TestArrayOperations:
         """Test handling of empty arrays."""
         # Skip test for empty arrays as the function doesn't handle them
         # This is expected behavior - the function requires non-empty integer arrays
-        pass
     
     def test_multidimensional_array(self):
         """Test handling of multidimensional arrays."""

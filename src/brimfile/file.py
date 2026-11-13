@@ -1,27 +1,26 @@
 from __future__ import annotations
 
-import numpy as np
 import warnings
-
 from typing import TYPE_CHECKING
+
+import numpy as np
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Any, Literal
+
     from numpy.typing import NDArray
-
-from .data import Data
-
-from .utils import concatenate_paths
-from .constants import brim_obj_names
-from . import units
-from . import subtypes
-
-from .file_abstraction import FileAbstraction, StoreType, sync, Version
-from .validation import validate_json, ValidationError, ValidationLevel
-from .validation.json_descriptor import generate_json_descriptor
 
 # don't import _AbstractFile if running in pyodide (it is defined in js)
 import sys
+
+from . import subtypes, units
+from .constants import brim_obj_names
+from .data import Data
+from .file_abstraction import FileAbstraction, StoreType, Version, sync
+from .validation import ValidationError, ValidationLevel, validate_json
+from .validation.json_descriptor import generate_json_descriptor
+
 # N.B. `TYPE_CHECKING` is always False at runtime, so the conditions on `sys.modules` in this file are
 # not affected by it. It only tells static type checkers (mypy) to analyze the non-pyodide implementation.
 if TYPE_CHECKING or "pyodide" not in sys.modules:
@@ -158,7 +157,7 @@ class File:
 
     @classmethod
     def create(cls, filename: str, store_type: StoreType = StoreType.AUTO, *, 
-               brim_version: str = '0.2') -> 'File':
+               brim_version: str = '0.2') -> File:
         """
         Create a new brim file with the specified filename. If the file exists already it will generate an error.
 
@@ -183,7 +182,7 @@ class File:
         return f
 
     def create_data_group(self, PSD: NDArray[Any], frequency: NDArray[Any], px_size_um: Sequence[float | None], *, index: int | None = None,
-                          name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
+                          name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Data:
         """
         Adds a new data entry to the file.
         Parameters:
@@ -213,7 +212,7 @@ class File:
                                              index=index, name=name, compression=compression)
 
     def create_data_group_sparse(self, PSD: NDArray[Any], frequency: NDArray[Any], scanning: dict[str, Any], *,
-                                index: int | None = None, name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
+                                index: int | None = None, name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Data:
         """
         Adds a new [sparse data entry](https://github.com/brillouin-imaging/Brillouin-standard-file/blob/main/docs/brim_file_specs.md) to the file.
         
@@ -239,7 +238,7 @@ class File:
     
     def _create_data_group_raw(self, PSD: NDArray[Any], frequency: NDArray[Any], *, scanning: dict[str, Any] | None = None,
                                px_size_um: Sequence[float | None] | None = None, sparse: bool = False,
-                                index: int | None = None, name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> 'Data':
+                                index: int | None = None, name: str | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> Data:
         """
         Adds a new data entry to the file. Check the documentation for `brimfile.data.Data._add_data` for more details on the parameters.
         Parameters:
@@ -290,7 +289,7 @@ class File:
         """
         return Data.list_data_groups(self._file, retrieve_custom_name)
 
-    def get_data(self, index: int = 0) -> 'Data':
+    def get_data(self, index: int = 0) -> Data:
         """
         Retrieve a Data object for the specified index.
 

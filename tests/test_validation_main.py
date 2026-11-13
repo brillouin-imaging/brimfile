@@ -18,6 +18,7 @@ import sys
 
 import pytest
 
+from brimfile.metadata.schema import Type as MetadataType
 from brimfile.validation.main import (
     ValidationLevel,
     ValidationType,
@@ -26,9 +27,7 @@ from brimfile.validation.main import (
     validate_json,
     validate_root_attrs,
 )
-from brimfile.metadata.schema import Type as MetadataType
 from brimfile.validation.versions import get_supported_versions, get_version_rules
-
 
 SUPPORTED_VERSIONS = get_supported_versions()
 

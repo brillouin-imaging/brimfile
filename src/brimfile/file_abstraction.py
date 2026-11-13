@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
-import numpy as np  
-import asyncio
-
 from typing import TYPE_CHECKING, TypeAlias, TypeVar, cast
+
+import numpy as np
+
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Coroutine, Iterator, Iterable, Sequence
+    from collections.abc import Awaitable, Coroutine, Iterable, Iterator, Sequence
     from types import EllipsisType
     from typing import Any, Literal
+
     from numpy.typing import ArrayLike, NDArray
     from zarr.abc.codec import BytesBytesCodec
     from zarr.abc.store import Store
@@ -49,7 +51,6 @@ class FileAbstraction(ABC):
             data: Data for the attribute.
             **kwargs: Additional arguments for attribute creation.
         """
-        pass
 
     @abstractmethod
     async def get_attr(self, obj: Any, name: str) -> Any:
@@ -62,7 +63,6 @@ class FileAbstraction(ABC):
         Raises:
             KeyError: If the attribute does not exist.
         """
-        pass
 
     # -------------------- Group Management --------------------
 
@@ -75,7 +75,6 @@ class FileAbstraction(ABC):
             full_path (str): Path to the group.
             **kwargs: Additional arguments for opening the group.
         """
-        pass
 
     @abstractmethod
     async def create_group(self, full_path: str, **kwargs: Any) -> Any:
@@ -86,7 +85,6 @@ class FileAbstraction(ABC):
             full_path (str): Path to the group.
             **kwargs: Additional arguments for creating the group.
         """
-        pass
 
     # -------------------- Dataset Management --------------------
 
@@ -162,7 +160,6 @@ class FileAbstraction(ABC):
         Returns:
             Dataset object which must support numpy indexing and slicing.
         """
-        pass
 
     @abstractmethod
     async def create_dataset(self, parent_group: Any, name: str, data: ArrayLike,
@@ -178,7 +175,6 @@ class FileAbstraction(ABC):
             chunk_size (tuple, optional): Chunk size for the dataset. If None the automatically computed size will be used.
             compression (FileAbstraction.Compression, optional): Compression options for the dataset.
         """
-        pass
 
     # -------------------- Listing --------------------
 
@@ -193,7 +189,6 @@ class FileAbstraction(ABC):
         Returns:
             list: List of strings representing the names of the objects.
         """
-        pass
 
     @abstractmethod
     async def object_exists(self, full_path: str) -> bool:
@@ -206,7 +201,6 @@ class FileAbstraction(ABC):
         Returns:
             bool: True if the object exists, False otherwise.
         """
-        pass
 
     @abstractmethod
     async def list_attributes(self, obj: Any) -> Iterable[str]:
@@ -219,7 +213,6 @@ class FileAbstraction(ABC):
         Returns:
             list: List of strings representing the names of the attributes.
         """
-        pass
 
     # -------------------- File Management --------------------
 
@@ -227,7 +220,6 @@ class FileAbstraction(ABC):
         """
         Close the file.
         """
-        pass
 
     # -------------------- Properties --------------------
 
@@ -291,12 +283,13 @@ def _gather_sync(*aws: Awaitable[Any], return_exceptions: bool = False) -> list[
     return sync(_f())
 
 import sys
+
 # N.B. `not TYPE_CHECKING` is always True at runtime, so the condition below is equivalent to
 # `"pyodide" in sys.modules`. It only tells static type checkers (mypy) to analyze
 # the zarr-based implementation (`else` branch), since both branches define the same names.
 if not TYPE_CHECKING and "pyodide" in sys.modules:  # using javascript based zarr library
     import pyodide
-    import js
+
     
     async def _awaitable_wrapper(coro: Awaitable[_T]) -> _T:
         return await coro
@@ -449,13 +442,11 @@ if not TYPE_CHECKING and "pyodide" in sys.modules:  # using javascript based zar
     _ZarrAsyncArray = _zarrFile.ZarrArray
     _ZarrArray = _zarrFile.ZarrArray
 else:
-    import zarr
-    import zarr.codecs
-    import numcodecs
-
     import importlib.util
 
+    import zarr
     import zarr.api.asynchronous as zarr_async
+    import zarr.codecs
     def sync(coro: Coroutine[Any, Any, _T]) -> _T:
         """"
         Synchronously run an asynchronous coroutine.
@@ -590,7 +581,7 @@ else:
         # -------------------- Attribute Management --------------------
 
         async def create_attr(self, obj: Any, name: str, data: Any, **kwargs: Any) -> None:
-            for k in kwargs.keys():
+            for k in kwargs:
                 warnings.warn(
                     f"'{k}' argument not supported by 'create_attr' in zarr")
             if isinstance(obj, str):
@@ -613,7 +604,7 @@ else:
         # -------------------- Group Management --------------------
 
         async def open_group(self, full_path: str, **kwargs: Any) -> Any:
-            for k in kwargs.keys():
+            for k in kwargs:
                 warnings.warn(
                     f"'{k}' argument not supported by 'open_group' in zarr")
             g = await self._root.getitem(full_path)

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 import h5py
 import numpy as np
-from collections import defaultdict
-from typing import Any
 
 TREATMENT_LEVEL = ['Shift', 'Shift_std', 'Linewidth', 'Linewidth_std', 'Amplitude', 
                    'Amplitude_std', 'BLT', 'BLT_std']

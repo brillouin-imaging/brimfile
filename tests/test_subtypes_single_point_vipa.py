@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 
 import brimfile as brim
-from brimfile.file_abstraction import sync
-from brimfile.utils import concatenate_paths
 from brimfile.constants import brim_obj_names
-from brimfile.subtypes.constants import SubType
+from brimfile.file_abstraction import sync
 from brimfile.subtypes import single_point_VIPA as spv
+from brimfile.subtypes.constants import SubType
+from brimfile.utils import concatenate_paths
 
 
 @pytest.mark.parametrize(

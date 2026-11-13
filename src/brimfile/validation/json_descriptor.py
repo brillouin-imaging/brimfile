@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sys
 from typing import TYPE_CHECKING
-from ..file_abstraction import sync, _AbstractFile
+
+from ..file_abstraction import _AbstractFile, sync
 from .utils import _Node
 
 if TYPE_CHECKING:
@@ -14,8 +15,9 @@ if TYPE_CHECKING:
 # N.B. `TYPE_CHECKING` is always False at runtime, so the condition below is equivalent to
 # `"pyodide" not in sys.modules`. It only tells static type checkers to analyze the zarr-based implementation.
 if TYPE_CHECKING or "pyodide" not in sys.modules:
-    import zarr
     import json
+
+    import zarr
 
     def list_keys(group: _ZarrGroup) -> Iterable[str]:
         if isinstance(group, zarr.AsyncGroup):

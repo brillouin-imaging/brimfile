@@ -1,30 +1,36 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from typing import Any, TypeAlias
+
     from numpy.typing import NDArray
+
     from ._types import _3DIntCoord
 
-import numpy as np
 import asyncio
-
-import warnings
-
-from .file_abstraction import FileAbstraction, sync, _async_getitem, _gather_sync
-from .utils import concatenate_paths, list_objects_matching_pattern_async, get_object_name, set_object_name
-from .utils import np_array_to_smallest_int_type, _determine_chunk_size
-
-from .metadata import Metadata
-from .metadata.types import MetadataItem
-
-from numbers import Number
 import itertools
+import warnings
+from numbers import Number
+
+import numpy as np
 
 from . import units
 from .analysis_results import AnalysisResults
 from .calibration import Calibration
 from .constants import brim_obj_names
+from .file_abstraction import FileAbstraction, _async_getitem, _gather_sync, sync
+from .metadata import Metadata
+from .metadata.types import MetadataItem
+from .utils import (
+    _determine_chunk_size,
+    concatenate_paths,
+    get_object_name,
+    list_objects_matching_pattern_async,
+    np_array_to_smallest_int_type,
+    set_object_name,
+)
 
 
 class Data:
@@ -156,7 +162,7 @@ class Data:
                             concatenate_paths(sm_path, coord))
                         res = await res.to_np_array()
                         res = np.squeeze(res)  # remove single-dimensional entries
-                    except Exception as e:
+                    except Exception:
                         # if the coordinate does not exist, return an empty array
                         pass
                     if len(res.shape) > 1:
@@ -995,7 +1001,7 @@ class Data:
         return group_name
     
     @classmethod
-    async def from_existing_async(cls, file: FileAbstraction, index: int) -> 'Data':
+    async def from_existing_async(cls, file: FileAbstraction, index: int) -> Data:
         """ 
         Create a Data object from an existing data group in the file.
         Args:
@@ -1014,7 +1020,7 @@ class Data:
         return dg
     
     @classmethod
-    def _create_new(cls, file: FileAbstraction, index: int, sparse: bool = False, name: str | None = None) -> 'Data':
+    def _create_new(cls, file: FileAbstraction, index: int, sparse: bool = False, name: str | None = None) -> Data:
         """
         Create a new data group with the specified index.
 

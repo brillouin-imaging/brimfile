@@ -2,16 +2,16 @@
 Pytest configuration and shared fixtures for brimfile tests.
 """
 
-import pytest
-import numpy as np
-import os
-import shutil
 import functools
 import http.server
+import os
+import shutil
 import threading
 import urllib.parse
 from datetime import datetime
 
+import numpy as np
+import pytest
 
 import brimfile as brim
 

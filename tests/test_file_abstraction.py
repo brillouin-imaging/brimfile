@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 
 from brimfile.file_abstraction import (
-    _AbstractFile,
     FileAbstraction,
     StoreType,
-    sync,
+    _AbstractFile,
     _async_getitem,
+    sync,
 )
 
 

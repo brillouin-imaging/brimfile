@@ -1,29 +1,41 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum
-import re
 from math import prod
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from typing import Any
 
+from ..constants import brim_obj_names
+from ..metadata.schema import METADATA_SCHEMA
+from ..metadata.schema import Type as MetadataType
 from ..metadata.types import MetadataItem, MetadataItemValidity
 from ..metadata.validation import validate_single_field
-from ..metadata.schema import Type as MetadataType
-from ..metadata.schema import METADATA_SCHEMA
-
-from ..subtypes.constants import SubType
 from ..subtypes.constants import FEATURES as SUBTYPE_FEATURES
-
-from ..constants import brim_obj_names
+from ..subtypes.constants import SubType
 from ..utils import concatenate_paths
-from .utils import _Node, get_node_type, get_attributes, get_array_shape_and_dtype, \
-                    is_numeric_dtype, generate_attr_path, _NodeType, broadcast_shapes
-from .versions import get_supported_versions, get_version_rules, UnsupportedBrimVersionError
+from .utils import (
+    _Node,
+    _NodeType,
+    broadcast_shapes,
+    generate_attr_path,
+    get_array_shape_and_dtype,
+    get_attributes,
+    get_node_type,
+    is_numeric_dtype,
+)
+from .versions import (
+    UnsupportedBrimVersionError,
+    get_supported_versions,
+    get_version_rules,
+)
 from .versions.base import VersionRules
+
 
 class ValidationLevel(Enum):
     """Severity for validation issues."""
@@ -246,7 +258,7 @@ def _validate_singlepoint_vipa_data_group(
             ))
         else:
             _2DArray_per_spectrum_path = concatenate_paths(raw_data_path, '2DArray_per_spectrum')
-            if not '2DArray_per_spectrum' in raw_data_node:
+            if '2DArray_per_spectrum' not in raw_data_node:
                 errs.append(ValidationError(
                     level=ValidationLevel.ERROR,
                     type=ValidationType.MISSING_ARRAY,

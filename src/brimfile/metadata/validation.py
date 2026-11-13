@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar
+
 if TYPE_CHECKING:
     from typing import Any
 
 import warnings
-
-from difflib import get_close_matches, SequenceMatcher
+from difflib import SequenceMatcher, get_close_matches
 from enum import Enum
 from numbers import Real
-from .schema import Type, MetadataEnum, MetadataField, METADATA_SCHEMA
-from .types import MetadataItem, MetadataValue, MetadataItemValidity
+
+from .schema import METADATA_SCHEMA, MetadataEnum, MetadataField, Type
+from .types import MetadataItem, MetadataItemValidity, MetadataValue
 
 T = TypeVar('T')
 

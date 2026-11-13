@@ -1,7 +1,7 @@
-from enum import Enum
-from dataclasses import dataclass
-import textwrap
 import shutil
+import textwrap
+from dataclasses import dataclass
+from enum import Enum
 
 
 class MetadataEnum(str, Enum):
