@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from typing import Any
-    from .utils import _Node
 
 from ..metadata.types import MetadataItem, MetadataItemValidity
 from ..metadata.validation import validate_single_field
@@ -21,7 +20,7 @@ from ..subtypes.constants import FEATURES as SUBTYPE_FEATURES
 
 from ..constants import brim_obj_names
 from ..utils import concatenate_paths
-from .utils import get_node_type, get_attributes, get_array_shape_and_dtype, \
+from .utils import _Node, get_node_type, get_attributes, get_array_shape_and_dtype, \
                     is_numeric_dtype, generate_attr_path, _NodeType, broadcast_shapes
 from .versions import get_supported_versions, get_version_rules, UnsupportedBrimVersionError
 from .versions.base import VersionRules

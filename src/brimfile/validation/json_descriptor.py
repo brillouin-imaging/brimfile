@@ -3,11 +3,11 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 from ..file_abstraction import sync, _AbstractFile
+from .utils import _Node
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import Any, TypeAlias
-    from .utils import _Node
     _ZarrGroup: TypeAlias = 'zarr.Group | zarr.AsyncGroup'
     _ZarrNode: TypeAlias = zarr.Array[Any] | zarr.AsyncArray[Any] | zarr.Group | zarr.AsyncGroup | None
 

@@ -5,9 +5,9 @@ from enum import StrEnum
 from operator import index
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from typing import Any, NewType
-    _Node = NewType('_Node', dict[str, Any])
+    from collections.abc import Sequence    
+from typing import Any, NewType
+_Node = NewType('_Node', dict[str, Any])
 
 _NUMERIC_DTYPE_ALIASES = {
     'int', 'uint', 'float', 'complex',
