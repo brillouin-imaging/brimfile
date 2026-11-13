@@ -29,9 +29,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[export-tiff]"
         pip install pytest
+
+    - name: Install mypy
+      if: matrix.os == 'ubuntu-latest'
+      run: pip install mypy
     
     - name: Run tests with pytest
       env:
         PYTHONASYNCIODEBUG: true
       run: |
         pytest tests/ -v --import-mode=importlib -m "not pyodide"
+
+    - name: Run type checks with mypy
+      if: matrix.os == 'ubuntu-latest'
+      # the files to check and the options are defined in the [tool.mypy] section of pyproject.toml
+      run: mypy
