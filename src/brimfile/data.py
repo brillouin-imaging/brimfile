@@ -427,7 +427,7 @@ class Data:
         Raises:
             IndexError: If the index is out of range for the PSD dataset.
         """
-        if self._sparse and not isinstance(index, int):
+        if self._sparse and not isinstance(index, (int, np.integer)):
             raise ValueError("For sparse data, index must be an integer.")
         elif not self._sparse and not (isinstance(index, tuple) and len(index) == 3):
             raise ValueError("For non-sparse data, index must be a tuple of (z, y, x) coordinates.")

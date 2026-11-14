@@ -277,6 +277,7 @@ def _gather_sync(*aws, return_exceptions: bool = False):
 import sys
 if "pyodide" in sys.modules:  # using javascript based zarr library
     import pyodide
+    import operator
     import js
     
     async def _awaitable_wrapper(coro):
@@ -305,10 +306,15 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
             async def getitem(self, index):
                 def index_to_js_slice(i):
                     if isinstance(i, slice):
+                        if i.step not in (None, 1):
+                            raise NotImplementedError("Currently only slices with step==1 is implemented")
                         return [i.start, i.stop]
                     elif isinstance(i, type(Ellipsis)):
                         raise ValueError("INTERNAL: Ellipsis should have been already substituted")
                     else:
+                        i = operator.index(i)
+                        if i<0:
+                            raise NotImplementedError("Currently only positive indices are implemented")
                         return [i, i+1]
                 if type(index) is not tuple:
                     index = (index,)
@@ -341,7 +347,7 @@ if "pyodide" in sys.modules:  # using javascript based zarr library
                 # remove singleton dimensions
                 singleton_dims = ()
                 for i, ind in enumerate(index):
-                    if isinstance(ind, int):
+                    if isinstance(ind, (int, np.integer)):
                         singleton_dims += (i,)
                 if len(singleton_dims)>0:
                     data = np.squeeze(data, axis=singleton_dims)
