@@ -400,13 +400,16 @@ class Metadata:
                 Exception: If the wavelength metadata cannot be retrieved or if the unit is not recognized.
         """
         wl = await self._get_single_item(Metadata.Type.Optics, 'Wavelength')
-        if not isinstance(wl.value, numbers.Number):
+        if not isinstance(wl.value, (numbers.Number, str)):
             raise TypeError(f"Wavelength value must be a number, got {type(wl.value).__name__}.")
+        try:
+            value = float(wl.value)
+        except ValueError:
+            raise TypeError(f"Wavelength value must be a number, got {wl.value}.")
         if wl.units is None:
             warnings.warn("Wavelength metadata has no units defined. Assuming the value is in nm.")
-            return float(wl.value)
+            return value
         unit = str(wl.units).lower()
-        value = float(wl.value)
         if unit in ('nm', 'nanometer', 'nanometers'):
             return value
         if unit in ('um', 'µm', 'micrometer', 'micrometers'):
@@ -425,13 +428,16 @@ class Metadata:
                 Exception: If the temperature metadata cannot be retrieved or if the unit is not recognized.
         """    
         t = await self._get_single_item(Metadata.Type.Experiment, 'Temperature')       
-        if not isinstance(t.value, numbers.Number):
+        if not isinstance(t.value, (numbers.Number, str)):
             raise TypeError(f"Temperature value must be a number, got {type(t.value).__name__}.")
         if t.units is None:
             warnings.warn("Temperature metadata has no units defined. Assuming the value is in Celsius.")
             return float(t.value)
         unit = str(t.units).lower()
-        value = float(t.value)
+        try:
+            value = float(t.value)
+        except ValueError:
+            raise TypeError(f"Temperature value must be a number, got {t.value}.")
         if unit in ('c', '°c', 'celsius'):
             return value
         if unit in ('k', 'kelvin'):
@@ -448,13 +454,16 @@ class Metadata:
                 Exception: If the scattering angle metadata cannot be retrieved or if the unit is not recognized.
         """
         sa = await self._get_single_item(Metadata.Type.Brillouin, 'Scattering_angle')
-        if not isinstance(sa.value, numbers.Number):
+        if not isinstance(sa.value, (numbers.Number, str)):
             raise TypeError(f"Scattering angle value must be a number, got {type(sa.value).__name__}.")
+        try:
+            value = float(sa.value)
+        except ValueError:
+            raise TypeError(f"Scattering angle value must be a number, got {sa.value}.")
         if sa.units is None:
             warnings.warn("Scattering angle metadata has no units defined. Assuming the value is in degrees.")
-            return float(sa.value)
+            return value
         unit = str(sa.units).lower()
-        value = float(sa.value)
         if unit in ('deg', '°', 'degree', 'degrees'):
             return value
         if unit in ('rad', 'radian', 'radians'):

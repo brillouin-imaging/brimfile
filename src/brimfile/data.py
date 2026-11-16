@@ -417,12 +417,12 @@ class Data:
 
         return PSD, frequency, PSD_units, frequency_units
 
-    def _get_spectrum(self, index: int | _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
+    def _get_spectrum(self, index: np.integer[Any] | int | _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
         """
         Synchronous wrapper for `_get_spectrum_async`.
         """
         return sync(self._get_spectrum_async(index))
-    async def _get_spectrum_async(self, index: int | _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
+    async def _get_spectrum_async(self, index: np.integer[Any] | int | _3DIntCoord) -> tuple[NDArray[Any] | None, NDArray[Any] | None, str | None, str | None]:
         """
         @public
 
@@ -444,7 +444,7 @@ class Data:
             raise ValueError("For non-sparse data, index must be a tuple of (z, y, x) coordinates.")
             
         # index = -1 corresponds to no spectrum
-        if any(i < 0 for i in ((index,) if isinstance(index, int) else index)):
+        if any(i < 0 for i in ((index,) if isinstance(index, (int, np.integer)) else index)):
             return None, None, None, None
         PSD, frequency = await asyncio.gather(
             self._file.open_dataset(concatenate_paths(
@@ -452,7 +452,7 @@ class Data:
             self._file.open_dataset(concatenate_paths(
                 self._path, brim_obj_names.data.frequency))
             )
-        if any(i >= PSD.shape[j] for j, i in enumerate((index,) if isinstance(index, int) else index)):
+        if any(i >= PSD.shape[j] for j, i in enumerate((index,) if isinstance(index, (int, np.integer)) else index)):
             raise IndexError(f"index {index} out of range for PSD with shape {PSD.shape}")
         # retrieve the units of the PSD and frequency
         PSD_units, frequency_units = await asyncio.gather(

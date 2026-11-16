@@ -392,4 +392,4 @@ if not _IMPORT_VALIDATION_ONLY:
     from .file_abstraction import StoreType
     from .metadata import Metadata
 
-    __all__ = ["AnalysisResults", "Calibration", "Data", "File", "Metadata", "StoreType"]
+    __all__ = ["__version__", "AnalysisResults", "Calibration", "Data", "File", "Metadata", "StoreType"]

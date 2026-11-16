@@ -287,8 +287,9 @@ def _gather_sync(*aws: Awaitable[Any], return_exceptions: bool = False) -> list[
 # `"pyodide" in sys.modules`. It only tells static type checkers (mypy) to analyze
 # the zarr-based implementation (`else` branch), since both branches define the same names.
 if not TYPE_CHECKING and "pyodide" in sys.modules:  # using javascript based zarr library
-    import pyodide
     import operator
+
+    import pyodide
     
     async def _awaitable_wrapper(coro: Awaitable[_T]) -> _T:
         return await coro

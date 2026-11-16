@@ -569,7 +569,7 @@ class AnalysisResults:
                 pts += (AnalysisResults.PeakType.AntiStokes,)
             #average getting the units of the first peak
             res[qt.name][AnalysisResults.PeakType.average.name] = Metadata.Item(
-                float(np.mean([np.abs(cast(np.number,res[qt.name][pt.name].value)) for pt in pts])),
+                np.mean([np.abs(cast(np.number,res[qt.name][pt.name].value)) for pt in pts]),
                 res[qt.name][pts[0].name].units
                 )
             if not all(res[qt.name][pt.name].units == res[qt.name][pts[0].name].units for pt in pts):
