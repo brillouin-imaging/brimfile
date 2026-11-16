@@ -125,6 +125,8 @@ class File:
         return validation_errors
     
     def __del__(self) -> None:
+        # TODO: consider using weakref.finalize or generally improve
+        # lifetime management (e.g. with a context manager)
         try:
             if hasattr(self, '_file'):
                 self.close()

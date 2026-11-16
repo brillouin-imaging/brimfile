@@ -107,7 +107,7 @@ class FileAbstraction(ABC):
 
         def __init__(self, type: int | None = DEFAULT, level: int | None = None, **kwargs: Any) -> None:
             if type is None:
-                type = self.DEFAULT
+                type = self.NONE
             self.type: int = type
             self.level = level
             # extra codec-specific keyword arguments (e.g. `cname`/`shuffle` for

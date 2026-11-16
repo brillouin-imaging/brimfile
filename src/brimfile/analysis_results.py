@@ -448,11 +448,11 @@ class AnalysisResults:
         if self._sparse:
             if self._spatial_map is None:
                 raise ValueError("Spatial map is None, cannot retrieve quantity at pixel for sparse data.")
-            i = self._spatial_map[*coord]
-            assert len(i) == 1
-            if i<0:
+            ii = self._spatial_map[*coord]
+            assert ii.size == 1
+            if ii<0:
                 return np.nan  # invalid pixel
-            i = (int(i), ...)
+            i = (int(ii), ...)
         else:
             i = coord + (...,)
 
