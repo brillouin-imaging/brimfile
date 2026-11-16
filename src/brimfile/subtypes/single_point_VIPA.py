@@ -1,35 +1,39 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from typing import Any
+    from collections.abc import Coroutine
     from numbers import Number
+    from typing import Any
+
     from numpy.typing import NDArray
 
-import numpy as np
-import warnings
 import asyncio
+import warnings
 
+import numpy as np
+
+from .. import AnalysisResults, Calibration, Data
+from ..constants import brim_obj_names
+from ..file_abstraction import FileAbstraction, _async_getitem, sync
+from ..utils import _determine_chunk_size, concatenate_paths
 from .constants import SubType
 from .utils import _check_or_create_subtype, _check_or_create_subtype_feature
 
-from .. import Data, Calibration, AnalysisResults, Calibration
-from ..constants import brim_obj_names
-from ..utils import concatenate_paths, _determine_chunk_size
-from ..file_abstraction import sync, FileAbstraction, _async_getitem
 
 def _get_PSD_nonspectral_shape(data_group: Data) -> tuple[int, ...] | None:
     try:
         PSD = sync(data_group._file.open_dataset(concatenate_paths(
             data_group._path, brim_obj_names.data.PSD)))
-        return PSD.shape[:-1]
-    except Exception as e:
+        return tuple(PSD.shape[:-1])
+    except Exception:
         warnings.warn("It is recommended to add the PSD dataset before adding the raw data, to ensure the correct shape of the raw data.")
     return None
 
 
-def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
-                compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+def add_rawdata(data_group: Data, rawdata: NDArray[Any], *,
+                compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> None:
     """Add raw SinglePoint_VIPA data to the ``Raw_data/2DArray_per_spectrum`` dataset.
 
     This function ensures that root-level subtype metadata is set for
@@ -75,7 +79,7 @@ def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
     raw_data_path = concatenate_paths(data_group._path, brim_obj_names.data.raw_data)
     try:
         raw_data_group = sync(data_group._file.open_group(raw_data_path))
-    except Exception as e:
+    except Exception:
         # If the group does not exist, create it
         raw_data_group = sync(data_group._file.create_group(raw_data_path))
 
@@ -85,8 +89,8 @@ def add_rawdata(data_group: Data, rawdata: np.ndarray, *,
         chunk_size=_determine_chunk_size(rawdata, 2),
         compression=compression))
 
-def add_rawdata_calibration(calibration_group: Calibration, rawdata: NDArray | dict[int, Any], *,
-                compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+def add_rawdata_calibration(calibration_group: Calibration, rawdata: NDArray[Any] | dict[int, NDArray[Any]], *,
+                compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> None:
     """Add raw SinglePoint_VIPA calibration data for each calibration material.
 
     This function requires that calibration spectra are already stored in the
@@ -119,10 +123,11 @@ def add_rawdata_calibration(calibration_group: Calibration, rawdata: NDArray | d
     if len(cal_mats) == 0:
         raise ValueError("No calibration materials found in the calibration group. Please add at least one calibration material before adding raw data with calibration.")
     if len(cal_mats) > 1 and not isinstance(rawdata, dict):
-        raise ValueError(f"Multiple calibration materials found in the calibration group, but rawdata is not provided as a dictionary with material indices as keys. \
+        raise ValueError("Multiple calibration materials found in the calibration group, but rawdata is not provided as a dictionary with material indices as keys. \
                          Please provide rawdata as a dict[int, Any] where the keys are the calibration material indices corresponding to the spectra in the calibration group.")
     if len(cal_mats) == 1 and not isinstance(rawdata, dict):
         rawdata = {cal_mats[0]: rawdata}
+    assert isinstance(rawdata, dict)  # guaranteed by the checks above
     if len(cal_mats) != len(rawdata):
         warnings.warn(f"The number of calibration materials in the calibration group ({len(cal_mats)}) does not match the number of rawdata entries provided ({len(rawdata)}).")
     
@@ -142,8 +147,8 @@ def add_rawdata_calibration(calibration_group: Calibration, rawdata: NDArray | d
             chunk_size=_determine_chunk_size(data, 2),
             compression=compression))
 
-def add_analysis_results_spectral_line(analysis_results: AnalysisResults, spectral_line: NDArray, *,
-                                  linewidth: float | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+def add_analysis_results_spectral_line(analysis_results: AnalysisResults, spectral_line: NDArray[Any], *,
+                                  linewidth: float | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> None:
     """Add spectral line information for the analysis results.
 
     Parameters
@@ -182,8 +187,8 @@ def add_analysis_results_spectral_line(analysis_results: AnalysisResults, spectr
     if linewidth is not None:
         sync(analysis_results._file.create_attr(sl_dt, 'Linewidth', linewidth))
 
-def add_calibration_spectral_line(calibration_group: Calibration, spectral_line: NDArray | dict[int, Any], *,
-                                  linewidth: float | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()):
+def add_calibration_spectral_line(calibration_group: Calibration, spectral_line: NDArray[Any] | dict[int, NDArray[Any]], *,
+                                  linewidth: float | None = None, compression: FileAbstraction.Compression = FileAbstraction.Compression()) -> None:
     """Add spectral line information for the calibration spectra.
 
     This function requires that raw calibration data is already stored in the
@@ -227,10 +232,11 @@ def add_calibration_spectral_line(calibration_group: Calibration, spectral_line:
     if len(cal_mats) == 0:
         raise ValueError("No calibration materials found in the calibration group. Please add at least one calibration material before adding raw data with calibration.")
     if len(cal_mats) > 1 and not isinstance(spectral_line, dict):
-        raise ValueError(f"Multiple calibration materials found in the calibration group, but spectral_line is not provided as a dictionary with material indices as keys. \
+        raise ValueError("Multiple calibration materials found in the calibration group, but spectral_line is not provided as a dictionary with material indices as keys. \
                          Please provide spectral_line as a dict[int, Any] where the keys are the calibration material indices corresponding to the spectra in the calibration group.")
     if len(cal_mats) == 1 and not isinstance(spectral_line, dict):
         spectral_line = {cal_mats[0]: spectral_line}
+    assert isinstance(spectral_line, dict)  # guaranteed by the checks above
     if len(cal_mats) != len(spectral_line):
         warnings.warn(f"The number of calibration materials in the calibration group ({len(cal_mats)}) does not match the number of spectral_line entries provided ({len(spectral_line)}).")
     
@@ -254,7 +260,7 @@ def add_calibration_spectral_line(calibration_group: Calibration, spectral_line:
         if linewidth is not None:
             sync(calibration_group._file.create_attr(sl_dt, 'Linewidth', linewidth))
 
-async def _get_spectral_line_in_image_from_calibration_async(calibration_group: Calibration, index: tuple, m: int = 0) -> tuple[NDArray | None, Number | None]:
+async def _get_spectral_line_in_image_from_calibration_async(calibration_group: Calibration, index: tuple[int, ...], m: int = 0) -> tuple[NDArray[Any] | None, Number | None]:
     """
     Retrieve the spectral line and linewidth for a given spatial coordinate and calibration material.
 
@@ -270,7 +276,7 @@ async def _get_spectral_line_in_image_from_calibration_async(calibration_group: 
     """
     try:
         sl_arr = await calibration_group._file.open_dataset(concatenate_paths(calibration_group._path, brim_obj_names.data.raw_data, str(m), 'Spectral_line'))
-    except Exception as e:
+    except Exception:
         return None, None
     if sl_arr.shape[-1] != 4:
         raise ValueError(f"The last dimension of the Spectral_line dataset for calibration material {m} should have size 4, corresponding to (y_start, x_start, y_end, x_end). Found shape {sl_arr.shape}")
@@ -285,13 +291,13 @@ async def _get_spectral_line_in_image_from_calibration_async(calibration_group: 
     linewidth = None
     try:
         linewidth = await calibration_group._file.get_attr(sl_arr, 'Linewidth')
-    except Exception as e:
+    except Exception:
         # Linewidth metadata is optional; keep default `None` when the attribute is unavailable.
         pass
     return np.array(spectral_line), linewidth
     
 
-async def _get_spectral_line_in_image_from_analysis_results_async(analysis_results: AnalysisResults, index: tuple) -> tuple[NDArray | None, Number | None]:
+async def _get_spectral_line_in_image_from_analysis_results_async(analysis_results: AnalysisResults, index: tuple[int, ...]) -> tuple[NDArray[Any] | None, Number | None]:
     """
     Retrieve the spectral line and linewidth for a given spatial coordinate
 
@@ -308,7 +314,7 @@ async def _get_spectral_line_in_image_from_analysis_results_async(analysis_resul
     linewidth = None
     try:
         sl_arr = await analysis_results._file.open_dataset(concatenate_paths(analysis_results._path, "Spectral_line"))
-    except Exception as e:
+    except Exception:
         return None, None
     if sl_arr.shape[-1] != 4:
         raise ValueError(f"The last dimension of the Spectral_line dataset in the analysis results should have size 4, corresponding to (y_start, x_start, y_end, x_end). Found shape {sl_arr.shape}")
@@ -324,8 +330,9 @@ async def _get_spectral_line_in_image_from_analysis_results_async(analysis_resul
     return np.array(spectral_line), linewidth
 
 
-async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *, 
-                                          analysis_results: AnalysisResults = None) -> tuple:
+async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple[int, int, int], *, 
+                                          analysis_results: AnalysisResults | None = None
+                                          ) -> tuple[NDArray[Any], NDArray[Any] | None, Number | None]:
     """
     Retrieve a raw spectrum together with the corresponding spectral line, if available,
     from the data group at the specified spatial coordinates.
@@ -351,12 +358,12 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
     
     rawdata_arr = await data_group._file.open_dataset(concatenate_paths(data_group._path, brim_obj_names.data.raw_data, '2DArray_per_spectrum'))
     raw_spectrum_coro = _async_getitem(rawdata_arr, index +(...,))
-    spectral_line_coro = None
+    spectral_line_coro: Coroutine[Any, Any, tuple[NDArray[Any] | None, Number | None]] | None = None
 
     read_from_analysis_results = False
     if analysis_results is not None:
         read_from_analysis_results = await data_group._file.object_exists(concatenate_paths(analysis_results._path, "Spectral_line"))
-    if read_from_analysis_results:
+    if analysis_results is not None and read_from_analysis_results:
         # if analysis_results is provided and contains the spectral line dataset, we read the spectral line from there;
         spectral_line_coro = _get_spectral_line_in_image_from_analysis_results_async(analysis_results, index)
     else:
@@ -365,25 +372,27 @@ async def get_raw_spectrum_in_image_async(data_group: Data, coor: tuple, *,
             calibration_group = await data_group.get_calibration_async()
             # TODO: decide what to do if there are multiple calibration materials (which one to select?)
             spectral_line_coro = _get_spectral_line_in_image_from_calibration_async(calibration_group, index)
-        except Exception as e:
+        except Exception:
             # the spectral line information is optional, so we can ignore errors related to its retrieval and just return None for the spectral line and linewidth when it is not available
             pass
     if spectral_line_coro is None:
-        async def none_coro():
+        async def none_coro() -> tuple[None, None]:
             return None, None
         spectral_line_coro = none_coro()
     raw_spectrum, spectral_line = await asyncio.gather(raw_spectrum_coro, spectral_line_coro)     
     
-    return (raw_spectrum, ) + spectral_line
+    return raw_spectrum, spectral_line[0], spectral_line[1]
 
-def get_raw_spectrum_in_image(data_group: Data, coor: tuple, *,
-                               analysis_results: AnalysisResults = None) -> tuple:
+def get_raw_spectrum_in_image(data_group: Data, coor: tuple[int, int, int], *,
+                               analysis_results: AnalysisResults | None = None
+                               ) -> tuple[Any, NDArray[Any] | None, Number | None]:
     """
     Synchronous wrapper for `get_raw_spectrum_in_image_async`.
     """
     return sync(get_raw_spectrum_in_image_async(data_group, coor, analysis_results=analysis_results))
 
-async def get_raw_calibration_spectrum_at_coor_async(calibration_group: Calibration, coor: tuple, m: int = 0) -> tuple:
+async def get_raw_calibration_spectrum_at_coor_async(calibration_group: Calibration, coor: tuple[int, int, int], m: int = 0
+                                                     ) -> tuple[Any, NDArray[Any] | None, Number | None]:
     """
     Retrieve a raw calibration spectrum together with the corresponding spectral line, if available,
     from the data group at the specified spatial coordinates.
@@ -405,7 +414,7 @@ async def get_raw_calibration_spectrum_at_coor_async(calibration_group: Calibrat
     index = calibration_group._data_group._get_spatial_index_from_coor(coor)
     spectral_line_coro = _get_spectral_line_in_image_from_calibration_async(calibration_group, index, m)
 
-    async def raw_spectrum_coro(coor, m):
+    async def raw_spectrum_coro(coor: tuple[int, int, int], m: int) -> Any:
         try:
             rawdata_arr = await calibration_group._file.open_dataset(concatenate_paths(calibration_group._path, brim_obj_names.data.raw_data, str(m), '2DArray_per_spectrum'))
         except Exception as e:
@@ -425,9 +434,10 @@ async def get_raw_calibration_spectrum_at_coor_async(calibration_group: Calibrat
         return await _async_getitem(rawdata_arr, (index, ...))
 
     raw_spectrum, spectral_line = await asyncio.gather(raw_spectrum_coro(coor, m), spectral_line_coro) 
-    return (raw_spectrum, ) + spectral_line
+    return raw_spectrum, spectral_line[0], spectral_line[1]
 
-def get_raw_calibration_spectrum_at_coor(calibration_group: Calibration, coor: tuple, m: int = 0) -> tuple:
+def get_raw_calibration_spectrum_at_coor(calibration_group: Calibration, coor: tuple[int, int, int], m: int = 0
+                                         ) -> tuple[Any, NDArray[Any] | None, Number | None]:
     """
     Synchronous wrapper for `get_raw_calibration_spectrum_at_coor_async`.
     """

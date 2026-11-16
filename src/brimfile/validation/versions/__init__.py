@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from functools import lru_cache
 import importlib
+from functools import cache
 
 from .base import VersionRules
 
@@ -20,7 +20,7 @@ def get_supported_versions() -> tuple[str, ...]:
     return tuple(sorted(VERSION_RULES_REGISTRY.keys()))
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_version_rules(version: str) -> VersionRules:
     target = VERSION_RULES_REGISTRY.get(version)
     if target is None:

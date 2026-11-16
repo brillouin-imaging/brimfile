@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-import numpy as np
 import asyncio
 import warnings
-
-from .file_abstraction import FileAbstraction, _async_getitem, sync, _gather_sync
-from .utils import concatenate_paths, list_objects_matching_pattern_async
-from . import units
-from .metadata.types import MetadataItem
-
 from typing import TYPE_CHECKING
+
+import numpy as np
+
+from . import units
+from .file_abstraction import FileAbstraction, _async_getitem, _gather_sync, sync
+from .metadata.types import MetadataItem
+from .utils import concatenate_paths, list_objects_matching_pattern_async
+
 if TYPE_CHECKING:
     from typing import Any
+
+    from numpy.typing import NDArray
+
+    from ._types import _3DIntCoord
+
     # import Data only for type checking to avoid circular imports
     from .data import Data
 
@@ -29,7 +35,7 @@ class Calibration:
     """
 
     def __init__(self, file: FileAbstraction, full_path: str, *, 
-                 data_group: Data, _initialize: bool = True):
+                 data_group: Data, _initialize: bool = True) -> None:
         """
         Initialize the Calibration object.
 
@@ -53,8 +59,11 @@ class Calibration:
 
         This method is called internally by the constructor and should not be called directly.
         """
-        self._index = None # dataset containing the indices of the calibration data
+        self._index: NDArray[Any] | None = None # dataset containing the indices of the calibration data
         self._calibration_arrays: dict[int, Any] = {} # dictionary to store the calibration data arrays, with numeric keys corresponding to the index of the calibration material
+        # index and spectra_arrs are temporary variables to help retrieve the calibration datasets asynchronously
+        index: Any | Exception
+        spectra_arrs: Any | Exception
         index, spectra_arrs = await asyncio.gather(
             self._file.open_dataset(concatenate_paths(self._path, 'Index')),
             list_objects_matching_pattern_async(self._file, self._path, r"^(\d+)$"),
@@ -86,7 +95,7 @@ class Calibration:
             if arr.shape[0] > 1 and self._index is None:
                 raise ValueError(f"Calibration array {m} has more than one spectrum but no index dataset found")
 
-    async def _get_calibration_index_from_coor(self, coor: tuple) -> int:
+    async def _get_calibration_index_from_coor(self, coor: _3DIntCoord) -> int:
         """
         Retrieve the calibration index for a given spatial coordinate.
 
@@ -100,7 +109,7 @@ class Calibration:
             return 0
         return int(await _async_getitem(self._index, spatial_index))
 
-    def get_spectrum_at_coor(self, coor: tuple, m: int = 0) -> tuple:
+    def get_spectrum_at_coor(self, coor: _3DIntCoord, m: int = 0) -> tuple[NDArray[Any], MetadataItem]:
         """
         Retrieve the calibration spectrum for a given spatial coordinate and material.
 

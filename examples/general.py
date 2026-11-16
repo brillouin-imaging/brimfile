@@ -1,13 +1,13 @@
-import numpy as np
-
-import sys
 import os
 import shutil
+import sys
+
+import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
-import brimfile as brim
-
 from datetime import datetime
+
+import brimfile as brim
 
 filename = os.path.abspath(os.path.join(os.path.dirname(__file__), 'file.brim.zarr' ))
 
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     from brimfile.subtypes import single_point_VIPA
     single_point_VIPA.add_rawdata(d0, raw_data)
     single_point_VIPA.add_rawdata_calibration(c0, {0: np.empty((N, 23, 59))})
-    single_point_VIPA.add_calibration_spectral_line(c0, np.empty((4)), linewidth = 4)
+    single_point_VIPA.add_calibration_spectral_line(c0, np.empty(4), linewidth = 4)
 
     # check the subtype of the file (should be SinglePoint_VIPA_v0.1 since we added raw data in the format of this subtype)
     st = f.subtype
@@ -101,7 +101,7 @@ if __name__ == "__main__":
                                              fit_model=brim.AnalysisResults.FitModel.Lorentzian)
     
     # add the spectral line to the analysis results in the format of the SinglePoint_VIPA subtype
-    single_point_VIPA.add_analysis_results_spectral_line(ar, np.empty((4)))
+    single_point_VIPA.add_analysis_results_spectral_line(ar, np.empty(4))
     single_point_VIPA.get_raw_spectrum_in_image(d0, (1,2,3), analysis_results=ar)
     single_point_VIPA.get_raw_calibration_spectrum_at_coor(c0, (1,2,3), m=0)
 

@@ -1,25 +1,41 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum
-import re
 from math import prod
+from typing import TYPE_CHECKING
 
-from ..metadata.types import MetadataItem, MetadataItemValidity
-from ..metadata.validation import validate_single_field
-from ..metadata.schema import Type as MetadataType
-from ..metadata.schema import METADATA_SCHEMA
-
-from ..subtypes.constants import SubType
-from ..subtypes.constants import FEATURES as SUBTYPE_FEATURES
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Any
 
 from ..constants import brim_obj_names
+from ..metadata.schema import METADATA_SCHEMA
+from ..metadata.schema import Type as MetadataType
+from ..metadata.types import MetadataItem, MetadataItemValidity
+from ..metadata.validation import validate_single_field
+from ..subtypes.constants import FEATURES as SUBTYPE_FEATURES
+from ..subtypes.constants import SubType
 from ..utils import concatenate_paths
-from .utils import get_node_type, get_attributes, get_array_shape_and_dtype, \
-                    is_numeric_dtype, generate_attr_path, _NodeType, broadcast_shapes
-from .versions import get_supported_versions, get_version_rules, UnsupportedBrimVersionError
+from .utils import (
+    _Node,
+    _NodeType,
+    broadcast_shapes,
+    generate_attr_path,
+    get_array_shape_and_dtype,
+    get_attributes,
+    get_node_type,
+    is_numeric_dtype,
+)
+from .versions import (
+    UnsupportedBrimVersionError,
+    get_supported_versions,
+    get_version_rules,
+)
 from .versions.base import VersionRules
+
 
 class ValidationLevel(Enum):
     """Severity for validation issues."""
@@ -43,16 +59,16 @@ class ValidationType(Enum):
 class ValidationError:
     level: ValidationLevel
     type: ValidationType
-    path: str = None # The full path of the object (group or array) where the error occurred. None if the error is not specific to a particular path.
+    path: str | None = None # The full path of the object (group or array) where the error occurred. None if the error is not specific to a particular path.
     message: str = ""
 
 
 def _validate_singlepoint_vipa_data_group(
-    node: dict,
+    node: _Node,
     path: str,
     *,
     sparse: bool,
-    PSD_shape: tuple[int, ...] | None,
+    PSD_shape: Sequence[int] | None,
 ) -> list[ValidationError]:
     errs: list[ValidationError] = []
     if PSD_shape is None:
@@ -72,7 +88,7 @@ def _validate_singlepoint_vipa_data_group(
         ))
     spatial_shape = tuple(PSD_shape[:-1])
 
-    def _validate_2d_raw_array(raw_array_node: dict, raw_array_path: str, *, expected_prefix: tuple[int, ...]) -> tuple[int | None, bool]:
+    def _validate_2d_raw_array(raw_array_node: _Node, raw_array_path: str, *, expected_prefix: tuple[int, ...]) -> tuple[int | None, bool]:
         """Validate a 2DArray_per_spectrum array shape and dtype.
 
         The array must match the provided spectrum-prefix dimensions, followed by
@@ -145,7 +161,7 @@ def _validate_singlepoint_vipa_data_group(
         return replicate_count, True
 
     def _validate_spectral_line_array(
-        sl_node: dict,
+        sl_node: _Node,
         sl_path: str,
         *,
         base_count: int | None = None,
@@ -242,7 +258,7 @@ def _validate_singlepoint_vipa_data_group(
             ))
         else:
             _2DArray_per_spectrum_path = concatenate_paths(raw_data_path, '2DArray_per_spectrum')
-            if not '2DArray_per_spectrum' in raw_data_node:
+            if '2DArray_per_spectrum' not in raw_data_node:
                 errs.append(ValidationError(
                     level=ValidationLevel.ERROR,
                     type=ValidationType.MISSING_ARRAY,
@@ -276,6 +292,7 @@ def _validate_singlepoint_vipa_data_group(
                 calibration_raw_group = None
 
     if calibration_raw_group is not None:
+        assert calibration_group is not None
         calibration_items = [
             k for k in calibration_group.keys()
             if re.match(r'^(\d+)$', k)
@@ -375,7 +392,7 @@ def _validate_singlepoint_vipa_data_group(
 
 def validate_metadata(
     metadata_type: MetadataType,
-    metadata_dict: dict[str],
+    metadata_dict: dict[str, Any],
     *,
     path_prefix: str = 'Brillouin_data',
     require_all_required_fields: bool = True,
@@ -405,7 +422,9 @@ def validate_metadata(
                 case MetadataItemValidity.INVALID_TYPE:
                     level = ValidationLevel.ERROR
                     error_type  = ValidationType.INVALID_TYPE
-                    message = f"Metadata field '{field_name}' has an invalid type. Expected type is {METADATA_SCHEMA[metadata_type].get_field(canonical_field_name).python_type.__name__}."
+                    expected_types = tuple(f.python_type.__name__ for f in METADATA_SCHEMA[metadata_type] if f.name == canonical_field_name)
+                    assert len(expected_types) == 1, f"Expected exactly one field with name '{canonical_field_name}' in metadata type '{metadata_type.value}', found {len(expected_types)}."
+                    message = f"Metadata field '{field_name}' has an invalid type. Expected type is {expected_types[0]}."
                 case MetadataItemValidity.INVALID_VALUE:
                     level = ValidationLevel.ERROR
                     error_type  = ValidationType.INVALID_VALUE
@@ -454,11 +473,11 @@ def validate_metadata(
 
 
 def _validate_nested_data_group_metadata_override(
-    node: dict,
+    node: _Node,
     path: str,
     *,
     sparse: bool,
-    PSD_shape: tuple[int, ...] | None,
+    PSD_shape: Sequence[int] | None,
 ) -> list[ValidationError]:
     errs: list[ValidationError] = []
     attrs = get_attributes(node)
@@ -552,7 +571,7 @@ def _validate_nested_data_group_metadata_override(
         ))
         return errs
 
-    expected_shape: tuple[int, ...] | None = None
+    expected_shape: Sequence[int] | None = None
     if PSD_shape is not None:
         expected_shape = (PSD_shape[0],) if sparse else PSD_shape[:3]
 
@@ -619,11 +638,11 @@ def _validate_nested_data_group_metadata_override(
 
 
 def _validate_data_group_metadata_overrides(
-    node: dict,
+    node: _Node,
     path: str,
     *,
     sparse: bool,
-    PSD_shape: tuple[int, ...] | None,
+    PSD_shape: Sequence[int] | None,
     version_rules: VersionRules,
 ) -> list[ValidationError]:
     errs: list[ValidationError] = []
@@ -672,7 +691,7 @@ def _get_default_version_rules() -> VersionRules:
         raise RuntimeError("No brim validation versions are registered.")
     return get_version_rules(supported_versions[0])
 
-def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=None) -> list[ValidationError]:
+def validate_analysis_group(node: _Node, path: str, *, sparse: bool = False, PSD_shape: Sequence[int] | None = None) -> list[ValidationError]:
     errs: list[ValidationError] = []
     attrs = get_attributes(node)
     if attrs is None or 'Fit_model' not in attrs:
@@ -750,7 +769,7 @@ def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=No
                         ))
                     if qt_shape is not None and PSD_shape is not None:
                         # TODO: Should the analysis arrays be allowed to match only the spatial dimensions of PSD (i.e. without additional parameters)?
-                        if qt_shape != PSD_shape[:-1]:
+                        if tuple(qt_shape) != tuple(PSD_shape[:-1]):
                             errs.append(ValidationError(
                                 level=ValidationLevel.CRITICAL,
                                 type=ValidationType.INVALID_SHAPE,
@@ -766,7 +785,7 @@ def validate_analysis_group(node: dict, path: str, *, sparse=False, PSD_shape=No
     return errs
 
 def validate_data_group(
-    node: dict,
+    node: _Node,
     path: str,
     *,
     version_rules: VersionRules | None = None,
@@ -990,7 +1009,8 @@ def validate_data_group(
                     path=concatenate_paths(path, "Scanning/Spatial_map"),
                     message=f"The 'Spatial_map' group in the data group '{path}' must contain at least one of the coordinate arrays 'x', 'y' or 'z'."
                 ))
-            is_valid_len = lambda coor: coor is None or coor == coor_len
+            def is_valid_len(coor: int | None) -> bool:
+                return coor is None or coor == coor_len
             if not is_valid_len(x_len) or not is_valid_len(y_len) or not is_valid_len(z_len):
                 errs.append(ValidationError(
                     level=ValidationLevel.CRITICAL,
@@ -1117,7 +1137,7 @@ def validate_data_group(
 
     return errs
 
-def validate_root_attrs(attrs: dict) -> list[ValidationError]:
+def validate_root_attrs(attrs: dict[str, Any]) -> list[ValidationError]:
     errs: list[ValidationError] = []
     path = 'Brillouin_data'
     # check the version attribute
@@ -1216,7 +1236,7 @@ def validate_root_attrs(attrs: dict) -> list[ValidationError]:
     return errs
 
 def validate_Brillouin_data_group(
-    node: dict,
+    node: _Node,
     *,
     version_rules: VersionRules,
     subtype: str | None = None,
@@ -1317,7 +1337,7 @@ def validate_json(json_descriptor: str) -> list[ValidationError]:
         json_descriptor: A JSON string representing the Zarr hierarchy descriptor.
     """
     try:
-        descriptor_dict = json.loads(json_descriptor)
+        descriptor_dict = _Node(json.loads(json_descriptor))
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON format: {e}")
 

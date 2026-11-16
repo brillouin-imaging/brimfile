@@ -3,8 +3,8 @@
 import pytest
 
 from brimfile.metadata import validation
+from brimfile.metadata.schema import ScanningStrategy, SpectrometerType, Type
 from brimfile.metadata.types import MetadataItem, MetadataItemValidity
-from brimfile.metadata.schema import Type, ScanningStrategy, SpectrometerType
 
 
 def test_validate_single_field_normalizes_known_field_name():

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar
+
 if TYPE_CHECKING:
     from typing import Any
 
 import warnings
-
-from difflib import get_close_matches, SequenceMatcher
+from difflib import SequenceMatcher, get_close_matches
 from enum import Enum
 from numbers import Real
-from .schema import Type, MetadataEnum, MetadataField, METADATA_SCHEMA
-from .types import MetadataItem, MetadataValue, MetadataItemValidity
+
+from .schema import METADATA_SCHEMA, MetadataEnum, MetadataField, Type
+from .types import MetadataItem, MetadataItemValidity, MetadataValue
 
 T = TypeVar('T')
 
@@ -67,7 +68,7 @@ def _find_close_normalized_matches(
 
 def _coerce_enum(
     enum_type: type[MetadataEnum],
-    value: MetadataEnum | Enum |str,
+    value: MetadataValue,
 ) -> MetadataEnum:
     """Convert input to an enum member using fuzzy matching with difflib.
 
@@ -182,7 +183,7 @@ def validate_single_field(
     validity : MetadataItemValidity = MetadataItemValidity.VALID
 
     # Get the metadata field from the schema if it exists
-    field: MetadataField = next((f for f in METADATA_SCHEMA[metadata_type] if _normalize_token(f.name) == _normalize_token(field_name)), None)
+    field: MetadataField | None = next((f for f in METADATA_SCHEMA[metadata_type] if _normalize_token(f.name) == _normalize_token(field_name)), None)
     if field is not None:
         if field.name != field_name:
             validity = MetadataItemValidity.LIKELY_TYPO
