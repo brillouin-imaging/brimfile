@@ -175,7 +175,7 @@ def _guess_chunks(
     tuple
 
     """
-    if isinstance(shape, int):
+    if isinstance(shape, (int, np.integer)):
         shape = (shape,)
 
     if typesize == 0:
