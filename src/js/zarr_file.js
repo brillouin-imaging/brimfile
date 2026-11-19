@@ -418,6 +418,7 @@ class ZarrFile {
  *
  * This function starts async initialization and returns immediately. The returned
  * `zarr_file_js` instance is usable once `zarr_file_js.is_ready()` is `true`.
+ * For a folder, `filename` is the selected root folder's name.
  *
  * @param {Array<File|string>|FileList} files Input source container. Supported forms:
  * - `[File]` where `File.name` ends with `.zip`
@@ -458,6 +459,8 @@ function init_file(files) {
   zarr_file.init_from_folder(files).then(() => {
     zarr_file.ready = true;
   });
+  // init_from_folder sets the folder name before its first await.
+  filename = zarr_file.filename ?? filename;
 
 }
   else {

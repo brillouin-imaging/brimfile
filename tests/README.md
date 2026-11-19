@@ -70,6 +70,13 @@ Once installed, `pytest tests/ -v` picks the pyodide tests up automatically
 pytest tests/test_file_abstraction_pyodide.py -v
 ```
 
+The JavaScript initializer regression tests can also be run directly with
+Node.js 22.15 or later (23.x requires 23.5 or later):
+
+```bash
+node --test tests/js/test_init_file.mjs
+```
+
 To skip them explicitly (e.g. if Node isn't available):
 
 ```bash

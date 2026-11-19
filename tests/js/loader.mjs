@@ -10,7 +10,7 @@ const CDN_TO_LOCAL = {
   'https://cdn.jsdelivr.net/npm/fast-xml-parser/+esm': 'fast-xml-parser',
 };
 
-export async function resolve(specifier, context, nextResolve) {
+export function resolve(specifier, context, nextResolve) {
   const mapped = CDN_TO_LOCAL[specifier];
   if (mapped) {
     // resolve relative to this loader file, so tests/js/node_modules is used
