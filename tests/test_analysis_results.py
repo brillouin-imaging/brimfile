@@ -601,6 +601,31 @@ class TestGetAllQuantitiesInImage:
 
 class TestSaveImageToOMETiff:
     """Tests for saving images to OME-TIFF format."""
+
+    def test_save_image_pixel_calibration(self, simple_brim_file_sparse, sample_data, tmp_path):
+        import xml.etree.ElementTree as ET
+        import pytest
+
+        tifffile = pytest.importorskip('tifffile')
+        f = brim.File(simple_brim_file_sparse)
+        try:
+            ar = f.get_data().get_analysis_results()
+            filename = ar.save_image_to_OMETiff(
+                ar.Quantity.Shift, filename=str(tmp_path / 'calibrated.ome.tif')
+            )
+            with tifffile.TiffFile(filename) as tif:
+                assert tif.ome_metadata is not None
+                pixels = ET.fromstring(tif.ome_metadata).find('.//{*}Pixels')
+                assert pixels is not None
+                for axis, value in zip('ZYX', sample_data['pixel_size']):
+                    assert float(pixels.attrib[f'PhysicalSize{axis}']) == pytest.approx(value)
+                    assert pixels.attrib[f'PhysicalSize{axis}Unit'] == '\u00b5m'
+                assert tif.pages[0].tags['ResolutionUnit'].value == 3
+                for axis, value in zip('XY', reversed(sample_data['pixel_size'][1:])):
+                    numerator, denominator = tif.pages[0].tags[f'{axis}Resolution'].value
+                    assert numerator / denominator == pytest.approx(10000 / value)
+        finally:
+            f.close()
     
     def test_save_image_with_default_filename(self, simple_brim_file, tmp_path):
         """Test saving image with default filename."""

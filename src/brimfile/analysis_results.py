@@ -348,17 +348,33 @@ class AnalysisResults:
         if img.ndim > 3:
             raise NotImplementedError(
                 "Saving images with more than 3 dimensions is not supported yet.")
+        ome_units: dict[str | None, str | None] = {'um': '\u00b5m', '\u03bcm': '\u00b5m'}
+        centimeters_per_unit: dict[str | None, float] = {
+            'm': 100, 'cm': 1, 'mm': 0.1, 'um': 1e-4,
+            '\u00b5m': 1e-4, '\u03bcm': 1e-4, 'nm': 1e-7,
+        }
+        resolution = None
+        x_size, y_size = px_size[2], px_size[1]
+        x_scale = centimeters_per_unit.get(x_size.units)
+        y_scale = centimeters_per_unit.get(y_size.units)
+        if (x_scale is not None and y_scale is not None
+                and isinstance(x_size.value, (int, float, np.number))
+                and isinstance(y_size.value, (int, float, np.number))
+                and np.isfinite(x_size.value) and np.isfinite(y_size.value)
+                and x_size.value > 0 and y_size.value > 0):
+            resolution = (1 / (x_size.value * x_scale), 1 / (y_size.value * y_scale))
         with tifffile.TiffWriter(filename, bigtiff=True) as tif:
             metadata = {
                 'axes': 'ZYX',
                 'PhysicalSizeX': px_size[2].value,
-                'PhysicalSizeXUnit': px_size[2].units,
+                'PhysicalSizeXUnit': ome_units.get(px_size[2].units, px_size[2].units),
                 'PhysicalSizeY': px_size[1].value,
-                'PhysicalSizeYUnit': px_size[1].units,
+                'PhysicalSizeYUnit': ome_units.get(px_size[1].units, px_size[1].units),
                 'PhysicalSizeZ': px_size[0].value,
-                'PhysicalSizeZUnit': px_size[0].units,
+                'PhysicalSizeZUnit': ome_units.get(px_size[0].units, px_size[0].units),
             }
-            tif.write(img, metadata=metadata)
+            tif.write(img, metadata=metadata, resolution=resolution,
+                      resolutionunit='CENTIMETER' if resolution is not None else None)
         return filename
 
     def get_image(self, qt: Quantity, pt: PeakType = PeakType.AntiStokes, index: int = 0) -> tuple[NDArray[Any], tuple[Metadata.Item, ...]]:
